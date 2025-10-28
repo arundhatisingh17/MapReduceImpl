@@ -14,14 +14,14 @@
 
     (f) The client module will communicate with the server module via grpc calls and the following functions can be invoked by the client module to increase observability:
 
-            (i) A job can be submitted to server.py. Users can refer to proto.py to understand the schema of the job and submit requests by complying to that format.
+       (i) A job can be submitted to server.py. Users can refer to proto.py to understand the schema of the job and submit requests by complying to that format.
 
-            (ii) The server.py will typically generate a print statement, declaring the commencement of a specific job request. 
+       (ii) The server.py will typically generate a print statement, declaring the commencement of a specific job request. 
 
-            (iii) If the print statement is not invoked within a certain duration of time, the user will have an option of triggering the job execution again to indirectly assign a higher
+       (iii) If the print statement is not invoked within a certain duration of time, the user will have an option of triggering the job execution again to indirectly assign a higher
                   priority for that specific job request. 
 
-            (iv) Once the job has been executed, the user will be able to access the files from HDFS.
+       (iv) Once the job has been executed, the user will be able to access the files from HDFS.
 
  
 2) Language and Framework: All the files will be written using Python 3.10. The following libraries and frameworks will be used:
