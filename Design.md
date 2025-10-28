@@ -14,7 +14,7 @@
 
 (f) The client module will communicate with the server module via grpc calls and the following functions can be invoked by the client module to increase observability:
 
-    (i) A job can be submitted to server.py. Users can refer to proto.py to understand the schema of the job and submit requests by complying to that format.
+   (i) A job can be submitted to server.py. Users can refer to proto.py to understand the schema of the job and submit requests by complying to that format.
 
    (ii) The server.py will typically generate a print statement, declaring the commencement of a specific job request. 
 
