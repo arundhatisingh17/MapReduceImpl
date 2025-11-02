@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+enum JobType {
+  MAP = 0;
+  REDUCE = 1;
+}
+
+message JobAssignment {
+  string job_id = 1;                 
+  string input_path = 2;             
+  string output_path = 3;            
+  int32 num_map_tasks = 4;           
+  int32 num_reduce_tasks = 5;        
+  JobType job_type = 6;              
+  repeated string assigned_workers = 7; 
+}
+
+message AssignmentStatus {
+  string job_id = 1;                 
+  bool acknowledged = 2;             
+  string message = 3;               
+  int32 status_code = 4;             
+}
+
+message WorkerInfo {
+  string worker_type = 2;            
+  string worker_address = 3;         
+}
+
+message Ack {
+  bool success = 1;                  
+  string message = 2;
+}
+
+service Boss {
+  rpc AssignJob(JobAssignment) returns (AssignmentStatus);
+  rpc RegisterWorker(WorkerInfo) returns (Ack);
+}
+
