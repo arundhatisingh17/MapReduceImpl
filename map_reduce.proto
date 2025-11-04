@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+message ScheduleJobRequest {
+	string dataset_path = 1;
+	int32 num_partitions = 2;
+	string map_function_path = 3;
+	string reduce_function_path = 4;
+	double repartition_threshold = 5;
+	string custom_hash_func = 6;
+}
+
+message GetJobStatusRequest {
+	string job_id = 1;
+}
+
+message JobStatus {
+        string job_id = 1;
+	string status = 2;
+	string output_path = 3;
+	string err = 4;
+}
+
+service Scheduler {
+	rpc SubmitJob(ScheduleJobRequest) returns (JobStatus);
+	rpc GetJobStatus(GetJobStatusRequest) returns (JobStatus); 
+}

@@ -1,0 +1,78 @@
+name: ${PROJECT}
+
+services:
+  scheduler:
+    image: ${PROJECT}-scheduler
+    hostname: scheduler
+    deploy:
+      resources:
+        limits:
+          memory: 3g
+    ports:
+      - "5440:5440"
+    networks:
+      - mapreduce-net
+
+  boss:
+    image: ${PROJECT}-boss
+    hostname: boss
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    ports:
+      - "50052:50052"
+    depends_on:
+      - scheduler
+    networks:
+      - mapreduce-net
+
+  map_worker:
+    image: ${PROJECT}-worker
+    command: ["python", "worker.py", "map"]
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    depends_on:
+      - boss
+    networks:
+      - mapreduce-net
+
+  reduce_worker:
+    image: ${PROJECT}-worker
+    command: ["python", "worker.py", "reduce"]
+    deploy:
+      replicas: ${NUM_REDUCE_WORKERS:-1}
+      resources:
+        limits:
+          memory: 1g
+    depends_on:
+      - boss
+    networks:
+      - mapreduce-net
+
+  hdfs:
+    image: p4-hdfs
+    hostname: nn
+    command: sleep infinity
+    ports:
+      - "9870:9870"
+      - "9000:9000"
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    networks:
+      - mapreduce-net
+
+  client:
+    image: ${PROJECT}-client
+    depends_on:
+      - scheduler
+    networks:
+      - mapreduce-net
+
+networks:
+  mapreduce-net:
+    driver: bridge
