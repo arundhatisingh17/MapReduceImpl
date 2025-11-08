@@ -3,7 +3,6 @@ import traceback
 import map_reduce_pb2_grpc
 import map_reduce_pb2
 import grpc
-import numpy as np
 import scheduler
 
 
@@ -16,10 +15,10 @@ class MapReduce(map_reduce_pb2_grpc.SchedulerServicer):
             return map_reduce_pb2.JobStatus(job_id=job_id, status="SCHEDULED")
         except Exception:
             err = traceback.format_exc()
-            print(f"Error in scheduleJob: {err}")
+            print(f"Error in SubmitJob: {err}")
             return map_reduce_pb2.JobStatus(job_id="", status="ERROR", err=err)
 
-    def getJobStatus(self, request, context):
+    def GetJobStatus(self, request, context):
         try:
             job_id = request.job_id
             print(f"Received status request for job ID: {job_id}")
@@ -34,27 +33,17 @@ class MapReduce(map_reduce_pb2_grpc.SchedulerServicer):
             return map_reduce_pb2.JobStatus(job_id=job_id, status=job['status'])
         except Exception:
             err = traceback.format_exc()
-            print(f"Error in getJobStatus: {err}")
+            print(f"Error in GetJobStatus: {err}")
             return map_reduce_pb2.JobStatus(job_id=getattr(request, 'job_id', ''), status="ERROR", err=err)
  
 def serve():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    job_manager = JobManager()
+    map_reduce_pb2_grpc.add_SchedulerServicer_to_server(MapReduce(), server)
 
-    mapreduce_pb2_grpc.add_MapReduceServiceServicer_to_server(
-        MapReduceServiceServicer(job_manager), server
-    )
-
-    print("Starting MapReduce Master gRPC server on port 50051...")
-    server.add_insecure_port("[::]:50051")
+    print("Starting Scheduler gRPC server on port 5440...")
+    server.add_insecure_port("[::]:5440")
     server.start()
-
-    try:
-        while True:
-            time.sleep(86400)
-    except KeyboardInterrupt:
-        print("Shutting down server...")
-        server.stop(0)
+    server.wait_for_termination()
 
 
 if __name__ == "__main__":
