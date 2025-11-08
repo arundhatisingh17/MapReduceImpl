@@ -2,11 +2,13 @@ syntax = "proto3";
 
 message ScheduleJobRequest {
 	string dataset_path = 1;
-	int32 num_partitions = 2;
-	string map_function_path = 3;
-	string reduce_function_path = 4;
-	double repartition_threshold = 5;
-	string custom_hash_func = 6;
+	string output_path = 2;
+	int32 num_map_tasks = 3;
+	int32 num_reduce_tasks = 4;
+	string map_function_path = 5;
+	string reduce_function_path = 6;
+	double repartition_threshold = 7;
+	string custom_hash_func = 8;
 }
 
 message GetJobStatusRequest {
