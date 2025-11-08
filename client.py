@@ -19,7 +19,7 @@ def submit_job():
     )
 
     print("[CLIENT] Submitting job...")
-    response = stub.scheduleJob(request)
+    response = stub.SubmitJob(request)
     print(f"[CLIENT] Job ID: {response.job_id} (status={response.status})")
     
     print("Printint status of job now.")
