@@ -1,0 +1,37 @@
+syntax = "proto3";
+package hdfs;
+
+message UploadRequest {
+  string path = 1;        // path relative to HDFS root
+  bytes data = 2;
+}
+
+message UploadResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message DownloadRequest {
+  string path = 1;
+}
+
+message DownloadResponse {
+  bool success = 1;
+  bytes data = 2;
+  string message = 3;
+}
+
+message ListRequest {
+  string path = 1;
+}
+
+message ListResponse {
+  repeated string entries = 1;
+  string message = 2;
+}
+
+service HdfsService {
+  rpc Upload (UploadRequest) returns (UploadResponse);
+  rpc Download (DownloadRequest) returns (DownloadResponse);
+  rpc List (ListRequest) returns (ListResponse);
+}

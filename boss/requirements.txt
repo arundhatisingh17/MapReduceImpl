@@ -1,0 +1,4 @@
+grpcio
+grpcio-tools
+requests==2.31.0
+Flask==2.2.5

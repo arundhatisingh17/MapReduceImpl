@@ -1,78 +1,57 @@
-name: ${PROJECT}
-
+version: "3.9"
 services:
-  scheduler:
-    image: ${PROJECT}-scheduler
-    hostname: scheduler
-    deploy:
-      resources:
-        limits:
-          memory: 3g
+  hdfs:
+    build: ./hdfs
+    container_name: hdfs
     ports:
-      - "5440:5440"
-    networks:
-      - mapreduce-net
-
+      - "50051:50051"
+    volumes:
+      - ./hdfs_data:/data
+  
   boss:
-    image: ${PROJECT}-boss
-    hostname: boss
-    deploy:
-      resources:
-        limits:
-          memory: 2g
+    build: ./boss
+    container_name: boss
+    depends_on:
+      - hdfs
     ports:
       - "50052:50052"
-    depends_on:
-      - scheduler
-    networks:
-      - mapreduce-net
-
-  map_worker:
-    image: ${PROJECT}-worker
-    command: ["python", "worker.py", "map"]
-    deploy:
-      resources:
-        limits:
-          memory: 1g
-    depends_on:
-      - boss
-    networks:
-      - mapreduce-net
-
-  reduce_worker:
-    image: ${PROJECT}-worker
-    command: ["python", "worker.py", "reduce"]
-    deploy:
-      replicas: ${NUM_REDUCE_WORKERS:-1}
-      resources:
-        limits:
-          memory: 1g
-    depends_on:
-      - boss
-    networks:
-      - mapreduce-net
-
-  hdfs:
-    image: p4-hdfs
-    hostname: nn
-    command: sleep infinity
+  
+  worker1:
+    build: ./worker
+    container_name: worker1
+    environment:
+      - WORKER_ID=1
+      - BOSS_URL=http://boss:8080
+      - HDFS_ADDR=hdfs:50051
     ports:
-      - "9870:9870"
-      - "9000:9000"
-    deploy:
-      resources:
-        limits:
-          memory: 2g
-    networks:
-      - mapreduce-net
+      - "8081:8080"
 
-  client:
-    image: ${PROJECT}-client
-    depends_on:
-      - scheduler
-    networks:
-      - mapreduce-net
+  worker2:
+    build: ./worker
+    container_name: worker2
+    environment:
+      - WORKER_ID=2
+      - BOSS_URL=http://boss:8080
+      - HDFS_ADDR=hdfs:50051
+    ports:
+      - "8082:8080"
 
-networks:
-  mapreduce-net:
-    driver: bridge
+  worker3:
+    build: ./worker
+    container_name: worker3
+    environment:
+      - WORKER_ID=3
+      - BOSS_URL=http://boss:8080
+      - HDFS_ADDR=hdfs:50051
+    ports:
+      - "8083:8080"
+
+  worker4:
+    build: ./worker
+    container_name: worker4
+    environment:
+      - WORKER_ID=4
+      - BOSS_URL=http://boss:8080
+      - HDFS_ADDR=hdfs:50051
+    ports:
+      - "8084:8080"
