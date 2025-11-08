@@ -6,6 +6,8 @@ import grpc
 import numpy as np
 import scheduler
 
+
+
 class MapReduce(map_reduce_pb2_grpc.SchedulerServicer):
     def SubmitJob(self, request, context):
         try:
@@ -35,10 +37,25 @@ class MapReduce(map_reduce_pb2_grpc.SchedulerServicer):
             print(f"Error in getJobStatus: {err}")
             return map_reduce_pb2.JobStatus(job_id=getattr(request, 'job_id', ''), status="ERROR", err=err)
  
-server = grpc.server(futures.ThreadPoolExecutor(max_workers=10), options=[("grpc.so_reuseport", 0)])
-map_reduce_pb2_grpc.add_SchedulerServicer_to_server(MapReduce(), server)
-server.add_insecure_port('0.0.0.0:5440')
-server.start()
-print("started")
+def serve():
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    job_manager = JobManager()
 
-server.wait_for_termination()
+    mapreduce_pb2_grpc.add_MapReduceServiceServicer_to_server(
+        MapReduceServiceServicer(job_manager), server
+    )
+
+    print("Starting MapReduce Master gRPC server on port 50051...")
+    server.add_insecure_port("[::]:50051")
+    server.start()
+
+    try:
+        while True:
+            time.sleep(86400)
+    except KeyboardInterrupt:
+        print("Shutting down server...")
+        server.stop(0)
+
+
+if __name__ == "__main__":
+    serve()
