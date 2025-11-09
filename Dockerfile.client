@@ -2,12 +2,15 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-RUN pip install grpcio grpcio-tools pandas pyarrow
+RUN pip install grpcio grpcio-tools pandas pyarrow numpy matplotlib
 
 COPY map_reduce.proto .
 RUN python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. map_reduce.proto
 
 COPY dataset_generator.py .
 COPY client.py .
+COPY create_test_data.py .
+COPY benchmark.py .
+COPY plot_results.py .
 
 CMD ["python3", "client.py"]
