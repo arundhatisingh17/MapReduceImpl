@@ -51,7 +51,7 @@ Set the project name and build all images:
 ```bash
 export PROJECT=mapreduce
 docker compose build
-docker compose up
+docker compose up -d
 ```
 
 This builds:
@@ -77,6 +77,7 @@ pip install grpcio grpcio-tools pandas pyarrow numpy matplotlib
 
 ```bash
 export PROJECT=mapreduce
+docker compose build
 docker compose up -d
 ```
 

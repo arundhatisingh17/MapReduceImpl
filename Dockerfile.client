@@ -2,12 +2,22 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Install Java for PyArrow's HadoopFileSystem
-RUN apt-get update && apt-get install -y openjdk-21-jre-headless && rm -rf /var/lib/apt/lists/*
+# Install dependencies: Java for pyarrow/HDFS, wget for downloading Hadoop
+RUN apt-get update && apt-get install -y openjdk-21-jre-headless wget && rm -rf /var/lib/apt/lists/*
 
-# Set environment variables for PyArrow to find Java
+# Download and install Hadoop
+ENV HADOOP_VERSION 3.3.6
+RUN wget https://archive.apache.org/dist/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz && \
+    tar -xzf hadoop-${HADOOP_VERSION}.tar.gz && \
+    mv hadoop-${HADOOP_VERSION} /opt/hadoop && \
+    rm hadoop-${HADOOP_VERSION}.tar.gz
+
+# Set environment variables for PyArrow to find Java and Hadoop
 ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64
-ENV LD_LIBRARY_PATH=$JAVA_HOME/lib/server
+ENV HADOOP_HOME=/opt/hadoop
+ENV LD_LIBRARY_PATH=$JAVA_HOME/lib/server:$HADOOP_HOME/lib/native
+# Add hadoop binaries to path to use `hadoop` commands, which pyarrow might need
+ENV PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
 
 RUN pip install grpcio grpcio-tools pandas pyarrow
 
