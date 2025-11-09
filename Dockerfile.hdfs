@@ -78,6 +78,13 @@ if [ ! -d "/hadoop/dfs/name/current" ]; then\n\
   hdfs namenode -format -force -nonInteractive\n\
 fi\n\
 \n\
+# Start datanode in background\n\
+echo "Starting HDFS datanode..."\n\
+hdfs datanode &\n\
+\n\
+# Give datanode time to start\n\
+sleep 5\n\
+\n\
 # Start namenode\n\
 echo "Starting HDFS namenode..."\n\
 exec hdfs namenode' > /start-hdfs.sh && chmod +x /start-hdfs.sh
