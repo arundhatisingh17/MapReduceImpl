@@ -2,6 +2,9 @@ name: ${PROJECT}
 
 services:
   scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
     image: ${PROJECT}-scheduler
     hostname: scheduler
     deploy:
@@ -14,6 +17,9 @@ services:
       - mapreduce-net
 
   boss:
+    build:
+      context: .
+      dockerfile: Dockerfile.boss
     image: ${PROJECT}-boss
     hostname: boss
     deploy:
@@ -28,6 +34,9 @@ services:
       - mapreduce-net
 
   worker1:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
     image: ${PROJECT}-worker
     hostname: worker1
     environment:
@@ -43,6 +52,9 @@ services:
       - mapreduce-net
 
   worker2:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
     image: ${PROJECT}-worker
     hostname: worker2
     environment:
@@ -58,6 +70,9 @@ services:
       - mapreduce-net
 
   worker3:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
     image: ${PROJECT}-worker
     hostname: worker3
     environment:
@@ -73,6 +88,9 @@ services:
       - mapreduce-net
 
   worker4:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
     image: ${PROJECT}-worker
     hostname: worker4
     environment:
@@ -102,6 +120,9 @@ services:
       - mapreduce-net
 
   client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
     image: ${PROJECT}-client
     depends_on:
       - scheduler
