@@ -1,9 +1,79 @@
 FROM ubuntu:24.04
-RUN apt-get update; apt-get install -y wget curl openjdk-11-jdk python3-pip iproute2 nano
 
-# HDFS
-RUN wget https://dlcdn.apache.org/hadoop/common/hadoop-3.3.6/hadoop-3.3.6.tar.gz; tar -xf hadoop-3.3.6.tar.gz; rm hadoop-3.3.6.tar.gz
+RUN apt-get update && apt-get install -y \
+    wget curl openjdk-11-jdk python3-pip iproute2 nano \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and install Hadoop
+RUN wget https://dlcdn.apache.org/hadoop/common/hadoop-3.3.6/hadoop-3.3.6.tar.gz && \
+    tar -xf hadoop-3.3.6.tar.gz && \
+    rm hadoop-3.3.6.tar.gz && \
+    mv hadoop-3.3.6 /hadoop
 
 ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
-ENV PATH="${PATH}:/hadoop-3.3.6/bin"
-ENV HADOOP_HOME=/hadoop-3.3.6
+ENV HADOOP_HOME=/hadoop
+ENV PATH="${PATH}:${HADOOP_HOME}/bin:${HADOOP_HOME}/sbin"
+ENV HADOOP_CONF_DIR=${HADOOP_HOME}/etc/hadoop
+
+# Configure HDFS
+RUN echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_CONF_DIR}/hadoop-env.sh
+
+# Create core-site.xml
+RUN echo '<?xml version="1.0"?>\n\
+<configuration>\n\
+  <property>\n\
+    <name>fs.defaultFS</name>\n\
+    <value>hdfs://nn:9000</value>\n\
+  </property>\n\
+  <property>\n\
+    <name>hadoop.tmp.dir</name>\n\
+    <value>/tmp/hadoop</value>\n\
+  </property>\n\
+</configuration>' > ${HADOOP_CONF_DIR}/core-site.xml
+
+# Create hdfs-site.xml
+RUN echo '<?xml version="1.0"?>\n\
+<configuration>\n\
+  <property>\n\
+    <name>dfs.replication</name>\n\
+    <value>1</value>\n\
+  </property>\n\
+  <property>\n\
+    <name>dfs.namenode.name.dir</name>\n\
+    <value>file:///hadoop/dfs/name</value>\n\
+  </property>\n\
+  <property>\n\
+    <name>dfs.datanode.data.dir</name>\n\
+    <value>file:///hadoop/dfs/data</value>\n\
+  </property>\n\
+  <property>\n\
+    <name>dfs.namenode.http-address</name>\n\
+    <value>0.0.0.0:9870</value>\n\
+  </property>\n\
+  <property>\n\
+    <name>dfs.permissions.enabled</name>\n\
+    <value>false</value>\n\
+  </property>\n\
+</configuration>' > ${HADOOP_CONF_DIR}/hdfs-site.xml
+
+# Create startup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Format namenode if not already formatted\n\
+if [ ! -d "/hadoop/dfs/name/current" ]; then\n\
+  echo "Formatting namenode..."\n\
+  hdfs namenode -format -force\n\
+fi\n\
+\n\
+# Create necessary directories\n\
+mkdir -p /hadoop/dfs/name /hadoop/dfs/data /tmp/hadoop\n\
+\n\
+# Start namenode\n\
+echo "Starting HDFS namenode..."\n\
+hdfs namenode' > /start-hdfs.sh && chmod +x /start-hdfs.sh
+
+# Expose ports
+EXPOSE 9000 9870
+
+CMD ["/start-hdfs.sh"]
