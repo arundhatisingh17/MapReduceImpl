@@ -2,6 +2,7 @@ import uuid
 import json, os
 
 JOBS_PATH = "/tmp/jobs.json"
+JOBS = {}
 
 def save_jobs():
     with open(JOBS_PATH, "w") as f:
