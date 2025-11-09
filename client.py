@@ -11,7 +11,7 @@ def submit_job():
 
     request = map_reduce_pb2.ScheduleJobRequest(
         dataset_path="hdfs://nn:9000/data/sample.parquet",
-        num_partitions=4,
+        num_partitions=8,  # Number of map tasks (can exceed worker count)
         map_function_path="/app/user_funcs/map_func.py",
         reduce_function_path="/app/user_funcs/reduce_func.py",
         repartition_threshold=0.1,
