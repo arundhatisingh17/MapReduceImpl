@@ -106,7 +106,10 @@ services:
       - mapreduce-net
 
   hdfs:
-    image: p4-hdfs
+    build:
+      context: .
+      dockerfile: Dockerfile.hdfs
+    image: ${PROJECT}-hdfs
     hostname: nn
     command: sleep infinity
     ports:
@@ -132,3 +135,4 @@ services:
 networks:
   mapreduce-net:
     driver: bridge
+
