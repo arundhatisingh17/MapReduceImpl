@@ -50,6 +50,7 @@ Set the project name and build all images:
 
 ```bash
 export PROJECT=mapreduce
+docker compose build
 docker compose up
 ```
 
