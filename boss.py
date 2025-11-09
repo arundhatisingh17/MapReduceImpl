@@ -16,10 +16,14 @@ import traceback
 class BossService(boss_pb2_grpc.BossServicer):
     def __init__(self):
         self.workers = {}  # worker_address -> {type, last_heartbeat, status}
-        self.active_tasks = {}  # task_id -> {worker_address, assignment, status, retry_count}
+        self.active_tasks = {}  # task_id -> {worker_address, assignment, status, retry_count, start_time}
         self.completed_tasks = set()
-        self.job_status = {}  # job_id -> {status, map_done, reduce_done, etc}
+        self.failed_tasks = {}  # task_id -> failure_count
+        self.job_status = {}  # job_id -> {status, map_done, reduce_done, failures, reassignments, etc}
         self.lock = threading.Lock()
+        self.MAX_RETRIES = 3
+        self.TASK_TIMEOUT = 120  # seconds
+        self.WORKER_TIMEOUT = 30  # seconds
         
         # Start heartbeat monitor thread
         self.monitor_thread = threading.Thread(target=self._monitor_workers, daemon=True)
@@ -54,7 +58,9 @@ class BossService(boss_pb2_grpc.BossServicer):
                 'map_tasks_completed': 0,
                 'reduce_tasks_pending': [],
                 'reduce_tasks_completed': 0,
-                'start_time': time.time()
+                'start_time': time.time(),
+                'failures': 0,
+                'reassignments': 0
             }
         
         # Start job execution in a separate thread
@@ -146,17 +152,21 @@ class BossService(boss_pb2_grpc.BossServicer):
         self._execute_tasks(reduce_tasks, job_id, 'reduce')
     
     def _execute_tasks(self, tasks, job_id, phase):
-        """Execute a list of tasks using available workers"""
+        """Execute a list of tasks using available workers with failure handling"""
         task_queue = list(tasks)
         completed = 0
         total = len(tasks)
+        task_retry_counts = {}  # task_id -> retry_count
         
         while completed < total:
+            # Check for timed-out tasks and re-queue them
+            self._check_task_timeouts(task_queue, task_retry_counts)
+            
             # Get available workers
             available_workers = self._get_available_workers()
             
             if not available_workers:
-                print(f"[BOSS] No workers available, waiting...")
+                print(f"[BOSS] No workers available for {phase} phase, waiting...")
                 time.sleep(2)
                 continue
             
@@ -165,18 +175,110 @@ class BossService(boss_pb2_grpc.BossServicer):
                 task_id, task_assignment = task_queue.pop(0)
                 worker_address = available_workers.pop(0)
                 
-                # Execute task on worker
-                success = self._execute_task_on_worker(worker_address, task_assignment)
+                # Check retry limit
+                retry_count = task_retry_counts.get(task_id, 0)
+                if retry_count >= self.MAX_RETRIES:
+                    print(f"[BOSS] Task {task_id} exceeded max retries ({self.MAX_RETRIES}), failing job")
+                    raise Exception(f"Task {task_id} failed after {self.MAX_RETRIES} retries")
                 
-                if success:
-                    completed += 1
-                    print(f"[BOSS] Task {task_id} completed ({completed}/{total})")
-                else:
-                    # Re-queue failed task
-                    print(f"[BOSS] Task {task_id} failed, re-queuing")
-                    task_queue.append((task_id, task_assignment))
+                # Execute task on worker asynchronously
+                thread = threading.Thread(
+                    target=self._execute_task_on_worker_async,
+                    args=(worker_address, task_assignment, task_id, job_id, task_queue, task_retry_counts),
+                    daemon=True
+                )
+                thread.start()
+                
+                # Track active task
+                with self.lock:
+                    self.active_tasks[task_id] = {
+                        'worker_address': worker_address,
+                        'assignment': task_assignment,
+                        'status': 'RUNNING',
+                        'retry_count': retry_count,
+                        'start_time': time.time()
+                    }
+            
+            # Check for completed tasks
+            with self.lock:
+                completed = len([t for t in self.active_tasks.values() if t.get('status') == 'COMPLETED'])
             
             time.sleep(1)
+        
+        # Wait for all tasks to complete
+        while True:
+            with self.lock:
+                running_tasks = [t for t_id, t in self.active_tasks.items() 
+                               if t.get('status') == 'RUNNING' and t_id.startswith(job_id)]
+            if not running_tasks:
+                break
+            time.sleep(1)
+        
+        print(f"[BOSS] All {phase} tasks completed for job {job_id}")
+    
+    def _check_task_timeouts(self, task_queue, task_retry_counts):
+        """Check for timed-out tasks and re-queue them"""
+        current_time = time.time()
+        timed_out_tasks = []
+        
+        with self.lock:
+            for task_id, task_info in list(self.active_tasks.items()):
+                if task_info.get('status') == 'RUNNING':
+                    if current_time - task_info.get('start_time', current_time) > self.TASK_TIMEOUT:
+                        print(f"[BOSS] Task {task_id} timed out on worker {task_info['worker_address']}")
+                        timed_out_tasks.append((task_id, task_info['assignment']))
+                        
+                        # Mark worker as potentially failed
+                        worker_addr = task_info['worker_address']
+                        if worker_addr in self.workers:
+                            self.workers[worker_addr]['status'] = 'SUSPECTED_FAILURE'
+                        
+                        # Update failure stats
+                        task_info['status'] = 'FAILED'
+                        task_retry_counts[task_id] = task_retry_counts.get(task_id, 0) + 1
+                        
+                        # Get job_id from task_id
+                        job_id = task_id.split('-')[0] + '-' + task_id.split('-')[1]
+                        if job_id in self.job_status:
+                            self.job_status[job_id]['failures'] += 1
+                            self.job_status[job_id]['reassignments'] += 1
+        
+        # Re-queue timed-out tasks
+        for task_id, assignment in timed_out_tasks:
+            task_queue.append((task_id, assignment))
+            print(f"[BOSS] Re-queuing timed-out task {task_id}")
+    
+    def _execute_task_on_worker_async(self, worker_address, task_assignment, task_id, job_id, task_queue, task_retry_counts):
+        """Execute a single task on a worker asynchronously"""
+        try:
+            success = self._execute_task_on_worker(worker_address, task_assignment)
+            
+            with self.lock:
+                if success:
+                    if task_id in self.active_tasks:
+                        self.active_tasks[task_id]['status'] = 'COMPLETED'
+                    self.completed_tasks.add(task_id)
+                    print(f"[BOSS] Task {task_id} completed successfully")
+                else:
+                    # Task failed, re-queue it
+                    if task_id in self.active_tasks:
+                        self.active_tasks[task_id]['status'] = 'FAILED'
+                    
+                    retry_count = task_retry_counts.get(task_id, 0) + 1
+                    task_retry_counts[task_id] = retry_count
+                    
+                    if retry_count < self.MAX_RETRIES:
+                        task_queue.append((task_id, task_assignment))
+                        print(f"[BOSS] Task {task_id} failed, re-queuing (retry {retry_count}/{self.MAX_RETRIES})")
+                        
+                        if job_id in self.job_status:
+                            self.job_status[job_id]['failures'] += 1
+                            self.job_status[job_id]['reassignments'] += 1
+                    else:
+                        print(f"[BOSS] Task {task_id} exceeded max retries")
+                        
+        except Exception as e:
+            print(f"[BOSS] Error in async task execution for {task_id}: {e}")
     
     def _execute_task_on_worker(self, worker_address, task_assignment):
         """Execute a single task on a worker"""
@@ -254,21 +356,29 @@ class BossService(boss_pb2_grpc.BossServicer):
             raise
     
     def _monitor_workers(self):
-        """Monitor worker health via heartbeats"""
+        """Monitor worker health and handle failures"""
         while True:
             time.sleep(5)
             current_time = time.time()
             
             with self.lock:
                 for worker_address, info in list(self.workers.items()):
-                    # Check if worker has timed out (no heartbeat in 30 seconds)
-                    if current_time - info.get('last_heartbeat', 0) > 30:
-                        print(f"[BOSS] Worker {worker_address} timed out")
-                        info['status'] = 'FAILED'
-                        
-                        # Re-queue any tasks assigned to this worker
-                        if info['current_task']:
-                            print(f"[BOSS] Re-queuing task {info['current_task']}")
+                    # Check if worker has timed out
+                    if current_time - info.get('last_heartbeat', 0) > self.WORKER_TIMEOUT:
+                        if info['status'] != 'FAILED':
+                            print(f"[BOSS] Worker {worker_address} detected as FAILED (no heartbeat)")
+                            info['status'] = 'FAILED'
+                            
+                            # Find and mark tasks from this worker as failed
+                            for task_id, task_info in self.active_tasks.items():
+                                if task_info.get('worker_address') == worker_address and task_info.get('status') == 'RUNNING':
+                                    print(f"[BOSS] Marking task {task_id} as failed due to worker failure")
+                                    task_info['status'] = 'FAILED'
+                    
+                    # Re-activate workers that come back online
+                    elif info['status'] == 'SUSPECTED_FAILURE':
+                        print(f"[BOSS] Worker {worker_address} recovered")
+                        info['status'] = 'ACTIVE'
     
     def _update_scheduler_status(self, job_id, status, output_path="", error=""):
         """Update job status in scheduler"""
@@ -286,6 +396,13 @@ class BossService(boss_pb2_grpc.BossServicer):
                     self.job_status[job_id]['status'] = status
                     self.job_status[job_id]['output_path'] = output_path
                     self.job_status[job_id]['error'] = error
+                    
+                    # Log failure statistics
+                    if status == 'COMPLETED':
+                        failures = self.job_status[job_id].get('failures', 0)
+                        reassignments = self.job_status[job_id].get('reassignments', 0)
+                        duration = time.time() - self.job_status[job_id]['start_time']
+                        print(f"[BOSS] Job {job_id} completed in {duration:.2f}s with {failures} failures and {reassignments} reassignments")
             
         except Exception as e:
             print(f"[BOSS] Error updating scheduler: {e}")

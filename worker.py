@@ -15,10 +15,12 @@ import traceback
 import socket
 
 class WorkerService(boss_pb2_grpc.WorkerServicer):
-    def __init__(self, worker_id, worker_address):
+    def __init__(self, worker_id, worker_address, fail_after=None):
         self.worker_id = worker_id
         self.worker_address = worker_address
         self.current_task = None
+        self.tasks_completed = 0
+        self.fail_after = fail_after  # Simulate failure after N tasks
         
     def ExecuteTask(self, request, context):
         """Execute a map or reduce task"""
@@ -27,13 +29,21 @@ class WorkerService(boss_pb2_grpc.WorkerServicer):
         
         print(f"[WORKER {self.worker_id}] Received task: {task_id} (type: {task_type})")
         
+        # Simulate failure if configured
+        if self.fail_after is not None and self.tasks_completed >= self.fail_after:
+            print(f"[WORKER {self.worker_id}] SIMULATING FAILURE after {self.tasks_completed} tasks")
+            time.sleep(2)
+            # Exit the worker to simulate crash
+            os._exit(1)
+        
         try:
             if task_type == boss_pb2.MAP:
                 self._execute_map_task(request)
             else:  # REDUCE
                 self._execute_reduce_task(request)
             
-            print(f"[WORKER {self.worker_id}] Task {task_id} completed successfully")
+            self.tasks_completed += 1
+            print(f"[WORKER {self.worker_id}] Task {task_id} completed successfully (total: {self.tasks_completed})")
             return boss_pb2.TaskComplete(
                 task_id=task_id,
                 worker_id=self.worker_id,
@@ -210,17 +220,19 @@ def get_worker_address():
     return f"{hostname}:50053"
 
 
-def serve(worker_id):
+def serve(worker_id, fail_after=None):
     worker_address = get_worker_address()
     
     # Create and start gRPC server
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    worker_service = WorkerService(worker_id, worker_address)
+    worker_service = WorkerService(worker_id, worker_address, fail_after)
     boss_pb2_grpc.add_WorkerServicer_to_server(worker_service, server)
     server.add_insecure_port('0.0.0.0:50053')
     server.start()
     
     print(f"[WORKER {worker_id}] Server started on port 50053")
+    if fail_after is not None:
+        print(f"[WORKER {worker_id}] FAILURE SIMULATION ENABLED: Will fail after {fail_after} tasks")
     
     # Register with boss
     if not register_with_boss(worker_id, worker_address):
@@ -234,6 +246,15 @@ if __name__ == '__main__':
     # Get worker ID from environment or generate one
     worker_id = os.environ.get('WORKER_ID', socket.gethostname())
     
+    # Check for failure simulation flag
+    fail_after = None
+    if 'FAIL_AFTER' in os.environ:
+        try:
+            fail_after = int(os.environ['FAIL_AFTER'])
+            print(f"[WORKER] Failure simulation enabled: will fail after {fail_after} tasks")
+        except ValueError:
+            print(f"[WORKER] Invalid FAIL_AFTER value, ignoring")
+    
     print(f"[WORKER] Starting worker {worker_id}")
-    serve(worker_id)
+    serve(worker_id, fail_after)
 
