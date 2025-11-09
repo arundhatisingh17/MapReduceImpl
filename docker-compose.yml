@@ -27,26 +27,61 @@ services:
     networks:
       - mapreduce-net
 
-  map_worker:
+  worker1:
     image: ${PROJECT}-worker
-    command: ["python", "worker.py", "map"]
+    hostname: worker1
+    environment:
+      - WORKER_ID=worker-1
     deploy:
       resources:
         limits:
           memory: 1g
+          cpus: "1.0"
     depends_on:
       - boss
     networks:
       - mapreduce-net
 
-  reduce_worker:
+  worker2:
     image: ${PROJECT}-worker
-    command: ["python", "worker.py", "reduce"]
+    hostname: worker2
+    environment:
+      - WORKER_ID=worker-2
     deploy:
-      replicas: ${NUM_REDUCE_WORKERS:-1}
       resources:
         limits:
           memory: 1g
+          cpus: "1.0"
+    depends_on:
+      - boss
+    networks:
+      - mapreduce-net
+
+  worker3:
+    image: ${PROJECT}-worker
+    hostname: worker3
+    environment:
+      - WORKER_ID=worker-3
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
+    depends_on:
+      - boss
+    networks:
+      - mapreduce-net
+
+  worker4:
+    image: ${PROJECT}-worker
+    hostname: worker4
+    environment:
+      - WORKER_ID=worker-4
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
     depends_on:
       - boss
     networks:
