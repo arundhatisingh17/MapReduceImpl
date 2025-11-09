@@ -77,7 +77,7 @@ pip install grpcio grpcio-tools pandas pyarrow numpy matplotlib
 
 ```bash
 export PROJECT=mapreduce
-docker-compose up -d
+docker compose up -d
 ```
 
 This starts:
@@ -89,7 +89,7 @@ This starts:
 ### 2. Verify Services Are Running
 
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 All services should show as "running".
@@ -97,18 +97,18 @@ All services should show as "running".
 ### 3. Check HDFS
 
 ```bash
-docker-compose exec hdfs hadoop fs -ls /
+docker compose exec hdfs hadoop fs -ls /
 ```
 
 ### 4. View Logs
 
 ```bash
 # View all logs
-docker-compose logs -f
+docker compose logs -f
 
 # View specific service
-docker-compose logs -f boss
-docker-compose logs -f worker1
+docker compose logs -f boss
+docker compose logs -f worker1
 ```
 
 ## Uploading Example Data
@@ -119,10 +119,10 @@ The system includes a test data generator:
 
 ```bash
 # From within the client container
-docker-compose run client python create_test_data.py --size 10MB
+docker compose run client python create_test_data.py --size 10MB
 
 # Or specify custom size and path
-docker-compose run client python create_test_data.py --size 50MB --output hdfs://nn:9000/data/my_test.parquet
+docker compose run client python create_test_data.py --size 50MB --output hdfs://nn:9000/data/my_test.parquet
 ```
 
 Supported sizes: `1MB`, `10MB`, `100MB`, `500MB`, or `1GB`
@@ -130,8 +130,8 @@ Supported sizes: `1MB`, `10MB`, `100MB`, `500MB`, or `1GB`
 ### Verify Data Upload
 
 ```bash
-docker-compose exec hdfs hadoop fs -ls /data/
-docker-compose exec hdfs hadoop fs -du -h /data/
+docker compose exec hdfs hadoop fs -ls /data/
+docker compose exec hdfs hadoop fs -du -h /data/
 ```
 
 ## Writing MapReduce Jobs
@@ -252,7 +252,7 @@ docker-compose logs -f worker1
 ### List Output Files
 
 ```bash
-docker-compose exec hdfs hadoop fs -ls /output/
+docker compose exec hdfs hadoop fs -ls /output/
 ```
 
 Each job creates a directory `/output/job-<uuid>/` with partition files:
@@ -309,17 +309,17 @@ worker1:
 
 Then restart:
 ```bash
-docker-compose up -d worker1
+docker compose up -d worker1
 ```
 
 ### Observe Failure Recovery
 
 ```bash
 # Watch the boss detect and reassign tasks
-docker-compose logs -f boss
+docker compose logs -f boss
 
 # Watch worker failure
-docker-compose logs -f worker1
+docker compose logs -f worker1
 ```
 
 The Boss will:
@@ -332,12 +332,12 @@ The Boss will:
 
 ```bash
 # Normal execution
-docker-compose run client python benchmark.py \
+docker compose run client python benchmark.py \
     --datasets hdfs://nn:9000/data/test_10mb.parquet \
     --output results_normal.csv
 
 # With one worker failing (manually set FAIL_AFTER first)
-docker-compose run client python benchmark.py \
+docker compose run client python benchmark.py \
     --datasets hdfs://nn:9000/data/test_10mb.parquet \
     --output results_with_failures.csv
 ```
@@ -347,7 +347,7 @@ docker-compose run client python benchmark.py \
 ### Generate Plots
 
 ```bash
-docker-compose run client python plot_results.py benchmark_results.csv --output-dir /data/plots
+docker compose run client python plot_results.py benchmark_results.csv --output-dir /data/plots
 ```
 
 This creates:
@@ -368,22 +368,22 @@ The system tracks:
 ### Stop Services
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ### Remove Data
 
 ```bash
 # Clear HDFS data
-docker-compose exec hdfs hadoop fs -rm -r /data/*
-docker-compose exec hdfs hadoop fs -rm -r /output/*
-docker-compose exec hdfs hadoop fs -rm -r /intermediate/*
+docker compose exec hdfs hadoop fs -rm -r /data/*
+docker compose exec hdfs hadoop fs -rm -r /output/*
+docker compose exec hdfs hadoop fs -rm -r /intermediate/*
 ```
 
 ### Remove All Containers and Images
 
 ```bash
-docker-compose down -v
+docker compose down -v
 docker rmi mapreduce-scheduler mapreduce-boss mapreduce-worker mapreduce-client
 ```
 
@@ -393,31 +393,31 @@ docker rmi mapreduce-scheduler mapreduce-boss mapreduce-worker mapreduce-client
 
 Check if Boss is running:
 ```bash
-docker-compose logs boss
+docker compose logs boss
 ```
 
 Restart workers:
 ```bash
-docker-compose restart worker1 worker2 worker3 worker4
+docker compose restart worker1 worker2 worker3 worker4
 ```
 
 ### HDFS Connection Issues
 
 Verify HDFS is accessible:
 ```bash
-docker-compose exec client python -c "import pyarrow as pa; fs = pa.fs.HadoopFileSystem('nn', 9000); print(fs.get_file_info('/'))"
+docker compose exec client python -c "import pyarrow as pa; fs = pa.fs.HadoopFileSystem('nn', 9000); print(fs.get_file_info('/'))"
 ```
 
 ### Job Stuck in SCHEDULED
 
 Check Boss logs for errors:
 ```bash
-docker-compose logs boss | grep ERROR
+docker compose logs boss | grep ERROR
 ```
 
 Verify Boss can reach workers:
 ```bash
-docker-compose exec boss ping worker1
+docker compose exec boss ping worker1
 ```
 
 ### Out of Memory
