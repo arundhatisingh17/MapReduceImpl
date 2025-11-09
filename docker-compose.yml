@@ -133,8 +133,11 @@ services:
     image: ${PROJECT}-client
     depends_on:
       - scheduler
+      - hdfs
     networks:
       - mapreduce-net
+    profiles:
+      - tools  # Don't start automatically with 'up -d'
 
 networks:
   mapreduce-net:
