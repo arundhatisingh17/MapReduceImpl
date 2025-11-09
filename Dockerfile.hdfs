@@ -10,21 +10,26 @@ RUN wget https://dlcdn.apache.org/hadoop/common/hadoop-3.3.6/hadoop-3.3.6.tar.gz
     rm hadoop-3.3.6.tar.gz && \
     mv hadoop-3.3.6 /hadoop
 
-# Setup JAVA_HOME for Ubuntu 24.04
-# Ubuntu 24.04 uses different Java path structure
-RUN update-java-alternatives -l | head -1 | awk '{print $3}' > /tmp/java_home && \
-    echo "JAVA_HOME=$(cat /tmp/java_home)" >> /etc/environment
-
-ENV JAVA_HOME=/usr/lib/jvm/java-1.11.0-openjdk-amd64
+# Set environment variables
 ENV HADOOP_HOME=/hadoop
 ENV PATH="${PATH}:${HADOOP_HOME}/bin:${HADOOP_HOME}/sbin"
 ENV HADOOP_CONF_DIR=${HADOOP_HOME}/etc/hadoop
 
-# Configure HDFS
-RUN echo "export JAVA_HOME=${JAVA_HOME}" >> ${HADOOP_CONF_DIR}/hadoop-env.sh
-
-# Create core-site.xml
-RUN echo '<?xml version="1.0"?>\n\
+# Create startup script that finds Java dynamically
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Find Java dynamically\n\
+JAVA_PATH=$(readlink -f $(which java))\n\
+export JAVA_HOME=$(echo ${JAVA_PATH} | sed "s:/bin/java::")\n\
+echo "Found JAVA_HOME: $JAVA_HOME"\n\
+\n\
+# Set JAVA_HOME in hadoop-env.sh\n\
+echo "export JAVA_HOME=$JAVA_HOME" >> ${HADOOP_CONF_DIR}/hadoop-env.sh\n\
+\n\
+# Create core-site.xml\n\
+cat > ${HADOOP_CONF_DIR}/core-site.xml <<EOF\n\
+<?xml version="1.0"?>\n\
 <configuration>\n\
   <property>\n\
     <name>fs.defaultFS</name>\n\
@@ -34,10 +39,12 @@ RUN echo '<?xml version="1.0"?>\n\
     <name>hadoop.tmp.dir</name>\n\
     <value>/tmp/hadoop</value>\n\
   </property>\n\
-</configuration>' > ${HADOOP_CONF_DIR}/core-site.xml
-
-# Create hdfs-site.xml
-RUN echo '<?xml version="1.0"?>\n\
+</configuration>\n\
+EOF\n\
+\n\
+# Create hdfs-site.xml\n\
+cat > ${HADOOP_CONF_DIR}/hdfs-site.xml <<EOF\n\
+<?xml version="1.0"?>\n\
 <configuration>\n\
   <property>\n\
     <name>dfs.replication</name>\n\
@@ -59,29 +66,21 @@ RUN echo '<?xml version="1.0"?>\n\
     <name>dfs.permissions.enabled</name>\n\
     <value>false</value>\n\
   </property>\n\
-</configuration>' > ${HADOOP_CONF_DIR}/hdfs-site.xml
-
-# Create startup script
-RUN echo '#!/bin/bash\n\
-set -e\n\
+</configuration>\n\
+EOF\n\
 \n\
-# Set JAVA_HOME dynamically\n\
-export JAVA_HOME=$(readlink -f /usr/bin/java | sed "s:bin/java::")\n\
-echo "Using JAVA_HOME: $JAVA_HOME"\n\
-export PATH=$JAVA_HOME/bin:$PATH\n\
+# Create directories\n\
+mkdir -p /hadoop/dfs/name /hadoop/dfs/data /tmp/hadoop\n\
 \n\
 # Format namenode if not already formatted\n\
 if [ ! -d "/hadoop/dfs/name/current" ]; then\n\
   echo "Formatting namenode..."\n\
-  hdfs namenode -format -force\n\
+  hdfs namenode -format -force -nonInteractive\n\
 fi\n\
-\n\
-# Create necessary directories\n\
-mkdir -p /hadoop/dfs/name /hadoop/dfs/data /tmp/hadoop\n\
 \n\
 # Start namenode\n\
 echo "Starting HDFS namenode..."\n\
-hdfs namenode' > /start-hdfs.sh && chmod +x /start-hdfs.sh
+exec hdfs namenode' > /start-hdfs.sh && chmod +x /start-hdfs.sh
 
 # Expose ports
 EXPOSE 9000 9870
