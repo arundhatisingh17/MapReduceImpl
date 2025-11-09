@@ -17,7 +17,7 @@ class MapReduce(map_reduce_pb2_grpc.SchedulerServicer):
             print(f"Error in scheduleJob: {err}")
             return map_reduce_pb2.JobStatus(job_id="", status="ERROR", err=err)
 
-    def getJobStatus(self, request, context):
+    def GetJobStatus(self, request, context):
         try:
             job_id = request.job_id
             print(f"Received status request for job ID: {job_id}")

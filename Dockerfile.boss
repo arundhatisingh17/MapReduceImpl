@@ -2,9 +2,14 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Add dependencies for your boss node here
-# e.g. RUN pip install ...
+RUN pip install grpcio grpcio-tools pandas pyarrow
 
-# You will need to add your boss application code.
-# e.g. COPY boss.py .
-# CMD ["python", "boss.py"]
+COPY boss.proto .
+COPY map_reduce.proto .
+RUN python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. boss.proto
+RUN python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. map_reduce.proto
+
+COPY boss.py .
+
+EXPOSE 50052
+CMD ["python", "boss.py"]

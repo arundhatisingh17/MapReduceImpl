@@ -32,8 +32,42 @@ message Ack {
   string message = 2;
 }
 
+message TaskAssignment {
+  string task_id = 1;
+  string job_id = 2;
+  JobType task_type = 3;
+  string input_path = 4;
+  string output_path = 5;
+  string map_function_path = 6;
+  string reduce_function_path = 7;
+  int32 partition_id = 8;
+  int32 num_reduce_tasks = 9;
+}
+
+message TaskComplete {
+  string task_id = 1;
+  string worker_id = 2;
+  bool success = 3;
+  string error_message = 4;
+  string output_path = 5;
+}
+
+message Heartbeat {
+  string worker_id = 1;
+  int64 timestamp = 2;
+}
+
+message HeartbeatAck {
+  bool ok = 1;
+}
+
 service Boss {
   rpc AssignJob(JobAssignment) returns (AssignmentStatus);
   rpc RegisterWorker(WorkerInfo) returns (Ack);
+}
+
+service Worker {
+  rpc ExecuteTask(TaskAssignment) returns (TaskComplete);
+  rpc SendHeartbeat(Heartbeat) returns (HeartbeatAck);
 }
 

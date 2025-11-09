@@ -2,5 +2,13 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
+RUN pip install grpcio grpcio-tools pandas pyarrow numpy
 
-# COPY worker.py .
+COPY boss.proto .
+RUN python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. boss.proto
+
+COPY worker.py .
+COPY user_funcs/ ./user_funcs/
+
+EXPOSE 50053
+CMD ["python", "worker.py"]
