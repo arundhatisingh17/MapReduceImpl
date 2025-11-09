@@ -10,7 +10,12 @@ RUN wget https://dlcdn.apache.org/hadoop/common/hadoop-3.3.6/hadoop-3.3.6.tar.gz
     rm hadoop-3.3.6.tar.gz && \
     mv hadoop-3.3.6 /hadoop
 
-ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+# Setup JAVA_HOME for Ubuntu 24.04
+# Ubuntu 24.04 uses different Java path structure
+RUN update-java-alternatives -l | head -1 | awk '{print $3}' > /tmp/java_home && \
+    echo "JAVA_HOME=$(cat /tmp/java_home)" >> /etc/environment
+
+ENV JAVA_HOME=/usr/lib/jvm/java-1.11.0-openjdk-amd64
 ENV HADOOP_HOME=/hadoop
 ENV PATH="${PATH}:${HADOOP_HOME}/bin:${HADOOP_HOME}/sbin"
 ENV HADOOP_CONF_DIR=${HADOOP_HOME}/etc/hadoop
@@ -59,6 +64,11 @@ RUN echo '<?xml version="1.0"?>\n\
 # Create startup script
 RUN echo '#!/bin/bash\n\
 set -e\n\
+\n\
+# Set JAVA_HOME dynamically\n\
+export JAVA_HOME=$(readlink -f /usr/bin/java | sed "s:bin/java::")\n\
+echo "Using JAVA_HOME: $JAVA_HOME"\n\
+export PATH=$JAVA_HOME/bin:$PATH\n\
 \n\
 # Format namenode if not already formatted\n\
 if [ ! -d "/hadoop/dfs/name/current" ]; then\n\
