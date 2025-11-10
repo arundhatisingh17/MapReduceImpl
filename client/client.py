@@ -14,6 +14,7 @@ import hdfs_pb2_grpc
 
 HDFS_ADDR = "localhost:50051"
 BOSS_ADDR = "localhost:50052"
+HDFS_ROOT = "/data" 
 
 def upload(local_path, hdfs_path):
     channel = grpc.insecure_channel(HDFS_ADDR)
@@ -33,27 +34,52 @@ def upload(local_path, hdfs_path):
         print("Uploaded", local_path, "->", resp.success, resp.message)
 
 def submit(input_path, output_path, user_code_localpath, nmap, nreduce):
-    # upload user_code to HDFS under /jobs/<jobname>/user_code.py
+    """
+    Upload user code to HDFS and submit a MapReduce job to the boss service.
+    """
+
+    # 1. Create a job name based on the user code filename
     jobname = "job-" + os.path.splitext(os.path.basename(user_code_localpath))[0]
-    channel = grpc.insecure_channel(HDFS_ADDR)
-    stub = hdfs_pb2_grpc.HdfsServiceStub(channel)
-    with open(user_code_localpath, "rb") as f:
-        code = f.read()
-    user_dest = f"jobs/{jobname}/user_code.py"
-    stub.Upload(hdfs_pb2.UploadRequest(path=user_dest, data=code))
-    # submit job to boss
-    channel2 = grpc.insecure_channel(BOSS_ADDR)
-    stub2 = mapreduce_pb2_grpc.MapReduceServiceStub(channel2)
-    req = mapreduce_pb2.JobRequest(
-        input_path=input_path,
-        output_path=output_path,
-        user_code_path=user_dest,
-        num_map_tasks=nmap,
-        num_reduce_tasks=nreduce
-    )
-    resp = stub2.SubmitJob(req)
-    print("Submit response:", resp.job_id, resp.success, resp.message)
-    return resp.job_id
+
+    # --- Upload user code to HDFS ---
+    try:
+        channel = grpc.insecure_channel(HDFS_ADDR)
+        stub = hdfs_pb2_grpc.HdfsServiceStub(channel)
+
+        with open(user_code_localpath, "rb") as f:
+            code = f.read()
+
+        user_dest = f"jobs/{jobname}/user_code.py"
+        upload_req = hdfs_pb2.UploadRequest(path=user_dest, data=code)
+        upload_resp = stub.Upload(upload_req)
+        print(f"Uploaded user code to HDFS at {user_dest}")
+    except grpc.RpcError as e:
+        print(f"❌ Failed to upload to HDFS: {e.details()}")
+        return None
+    except FileNotFoundError:
+        print(f"❌ Local file not found: {user_code_localpath}")
+        return None
+
+    # --- Submit the job to the boss service ---
+    try:
+        channel2 = grpc.insecure_channel(BOSS_ADDR)
+        stub2 = mapreduce_pb2_grpc.MapReduceServiceStub(channel2)
+
+        req = mapreduce_pb2.JobRequest(
+            input_path=input_path,
+            output_path=output_path,
+            user_code_path=user_dest,
+            num_map_tasks=nmap,
+            num_reduce_tasks=nreduce
+        )
+
+        resp = stub2.SubmitJob(req)
+        print(f"✅ Job submitted: ID={resp.job_id}, Success={resp.success}, Message='{resp.message}'")
+        return resp.job_id
+
+    except grpc.RpcError as e:
+        print(f"❌ Failed to submit job: {e.details()}")
+        return None
 
 def status(jobid):
     channel2 = grpc.insecure_channel(BOSS_ADDR)

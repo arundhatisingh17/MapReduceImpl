@@ -7,7 +7,7 @@ import argparse
 import hdfs_pb2
 import hdfs_pb2_grpc
 
-ROOT = "/data"  # mount this volume from host
+ROOT = os.environ.get("HDFS_ROOT", "/data")  # mount this volume from host, or use env var for local testing
 
 class HdfsServicer(hdfs_pb2_grpc.HdfsServiceServicer):
     def Upload(self, request, context):
@@ -22,6 +22,7 @@ class HdfsServicer(hdfs_pb2_grpc.HdfsServiceServicer):
             return hdfs_pb2.UploadResponse(success=False, message=str(e))
 
     def Download(self, request, context):
+        print("Downloadrequest received by hdfs server.", flush=True)
         path = os.path.join(ROOT, request.path.lstrip("/"))
         if not os.path.exists(path):
             return hdfs_pb2.DownloadResponse(success=False, data=b"", message="Not found")
