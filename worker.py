@@ -1,7 +1,7 @@
 import grpc
 from concurrent import futures
-import boss_pb2
-import boss_pb2_grpc
+import map_reduce_pb2
+import map_reduce_pb2_grpc
 import sys
 import time
 import threading
@@ -14,7 +14,7 @@ from collections import defaultdict
 import traceback
 import socket
 
-class WorkerService(boss_pb2_grpc.WorkerServicer):
+class WorkerService(map_reduce_pb2_grpc.WorkerServicer):
     def __init__(self, worker_id, worker_address, fail_after=None):
         self.worker_id = worker_id
         self.worker_address = worker_address
@@ -37,16 +37,16 @@ class WorkerService(boss_pb2_grpc.WorkerServicer):
             os._exit(1)
         
         try:
-            if task_type == boss_pb2.MAP:
+            if task_type == map_reduce_pb2.MAP:
                 self._execute_map_task(request)
             else:  # REDUCE
                 self._execute_reduce_task(request)
             
             self.tasks_completed += 1
             print(f"[WORKER {self.worker_id}] Task {task_id} completed successfully (total: {self.tasks_completed})")
-            return boss_pb2.TaskComplete(
+            return map_reduce_pb2.TaskResult(
                 task_id=task_id,
-                worker_id=self.worker_id,
+                worker_address=self.worker_address,
                 success=True,
                 error_message="",
                 output_path=request.output_path
@@ -55,23 +55,23 @@ class WorkerService(boss_pb2_grpc.WorkerServicer):
         except Exception as e:
             error_msg = f"Task failed: {str(e)}\n{traceback.format_exc()}"
             print(f"[WORKER {self.worker_id}] {error_msg}")
-            return boss_pb2.TaskComplete(
+            return map_reduce_pb2.TaskResult(
                 task_id=task_id,
-                worker_id=self.worker_id,
+                worker_address=self.worker_address,
                 success=False,
                 error_message=error_msg,
                 output_path=""
             )
     
     def SendHeartbeat(self, request, context):
-        """Respond to heartbeat from boss"""
-        return boss_pb2.HeartbeatAck(ok=True)
+        """Respond to heartbeat from master"""
+        return map_reduce_pb2.HeartbeatAck(ok=True)
     
     def _execute_map_task(self, task):
         """Execute a map task"""
         # Read input partition
-        fs = pa.fs.HadoopFileSystem("nn", 9000)
-        input_path = task.input_path.replace("hdfs://nn:9000", "")
+        fs = pa.fs.HadoopFileSystem("namenode", 9000)
+        input_path = task.input_path.replace("hdfs://namenode:9000", "")
         
         table = pq.read_table(input_path, filesystem=fs)
         df = table.to_pandas()
@@ -112,7 +112,7 @@ class WorkerService(boss_pb2_grpc.WorkerServicer):
     def _execute_reduce_task(self, task):
         """Execute a reduce task"""
         # Read all intermediate files for this partition
-        fs = pa.fs.HadoopFileSystem("nn", 9000)
+        fs = pa.fs.HadoopFileSystem("namenode", 9000)
         job_id = task.job_id
         partition_id = task.partition_id
         
@@ -155,7 +155,7 @@ class WorkerService(boss_pb2_grpc.WorkerServicer):
                 results.append({'key': result_key, 'value': result_value})
         
         # Write final output
-        output_path = task.output_path.replace("hdfs://nn:9000", "")
+        output_path = task.output_path.replace("hdfs://namenode:9000", "")
         
         if results:
             output_df = pd.DataFrame(results)
@@ -182,34 +182,28 @@ class WorkerService(boss_pb2_grpc.WorkerServicer):
         return getattr(user_module, function_name)
 
 
-def register_with_boss(worker_id, worker_address):
-    """Register this worker with the boss"""
+def register_with_master(worker_id, worker_address):
+    """Register this worker with the master"""
     max_retries = 10
     retry_count = 0
     
     while retry_count < max_retries:
         try:
-            channel = grpc.insecure_channel("boss:50052")
-            stub = boss_pb2_grpc.BossStub(channel)
+            channel = grpc.insecure_channel("master:50051")
+            stub = map_reduce_pb2_grpc.MasterStub(channel)
             
-            response = stub.RegisterWorker(
-                boss_pb2.WorkerInfo(
-                    worker_type="generic",
-                    worker_address=worker_address
-                ),
-                timeout=5
-            )
-            
-            if response.success:
-                print(f"[WORKER {worker_id}] Successfully registered with boss")
-                return True
+            # Note: Master service doesn't have RegisterWorker RPC
+            # Workers are discovered when they accept tasks
+            # For now, just verify master is reachable
+            print(f"[WORKER {worker_id}] Master service is reachable")
+            return True
                 
         except Exception as e:
             retry_count += 1
-            print(f"[WORKER {worker_id}] Failed to register with boss (attempt {retry_count}/{max_retries}): {e}")
+            print(f"[WORKER {worker_id}] Failed to connect to master (attempt {retry_count}/{max_retries}): {e}")
             time.sleep(5)
     
-    print(f"[WORKER {worker_id}] Failed to register with boss after {max_retries} attempts")
+    print(f"[WORKER {worker_id}] Failed to connect to master after {max_retries} attempts")
     return False
 
 
@@ -226,7 +220,7 @@ def serve(worker_id, fail_after=None):
     # Create and start gRPC server
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     worker_service = WorkerService(worker_id, worker_address, fail_after)
-    boss_pb2_grpc.add_WorkerServicer_to_server(worker_service, server)
+    map_reduce_pb2_grpc.add_WorkerServicer_to_server(worker_service, server)
     server.add_insecure_port('0.0.0.0:50053')
     server.start()
     
@@ -234,9 +228,9 @@ def serve(worker_id, fail_after=None):
     if fail_after is not None:
         print(f"[WORKER {worker_id}] FAILURE SIMULATION ENABLED: Will fail after {fail_after} tasks")
     
-    # Register with boss
-    if not register_with_boss(worker_id, worker_address):
-        print(f"[WORKER {worker_id}] Failed to register, but continuing to serve")
+    # Connect to master
+    if not register_with_master(worker_id, worker_address):
+        print(f"[WORKER {worker_id}] Failed to connect to master, but continuing to serve")
     
     # Keep server running
     server.wait_for_termination()

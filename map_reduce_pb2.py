@@ -24,19 +24,35 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10map_reduce.proto\"\xb4\x01\n\x12ScheduleJobRequest\x12\x14\n\x0c\x64\x61taset_path\x18\x01 \x01(\t\x12\x16\n\x0enum_partitions\x18\x02 \x01(\x05\x12\x19\n\x11map_function_path\x18\x03 \x01(\t\x12\x1c\n\x14reduce_function_path\x18\x04 \x01(\t\x12\x1d\n\x15repartition_threshold\x18\x05 \x01(\x01\x12\x18\n\x10\x63ustom_hash_func\x18\x06 \x01(\t\"%\n\x13GetJobStatusRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\"M\n\tJobStatus\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x13\n\x0boutput_path\x18\x03 \x01(\t\x12\x0b\n\x03\x65rr\x18\x04 \x01(\t2k\n\tScheduler\x12,\n\tSubmitJob\x12\x13.ScheduleJobRequest\x1a\n.JobStatus\x12\x30\n\x0cGetJobStatus\x12\x14.GetJobStatusRequest\x1a\n.JobStatusb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10map_reduce.proto\"\x92\x01\n\x10SubmitJobRequest\x12\x14\n\x0c\x64\x61taset_path\x18\x01 \x01(\t\x12\x15\n\rnum_map_tasks\x18\x02 \x01(\x05\x12\x18\n\x10num_reduce_tasks\x18\x03 \x01(\x05\x12\x19\n\x11map_function_path\x18\x04 \x01(\t\x12\x1c\n\x14reduce_function_path\x18\x05 \x01(\t\"\"\n\x10JobStatusRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\"W\n\x11JobStatusResponse\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x13\n\x0boutput_path\x18\x03 \x01(\t\x12\r\n\x05\x65rror\x18\x04 \x01(\t\",\n\x12WorkerRegistration\x12\x16\n\x0eworker_address\x18\x01 \x01(\t\"3\n\x0fRegistrationAck\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"\xe1\x01\n\x0eTaskAssignment\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x0e\n\x06job_id\x18\x02 \x01(\t\x12\x1c\n\ttask_type\x18\x03 \x01(\x0e\x32\t.TaskType\x12\x12\n\ninput_path\x18\x04 \x01(\t\x12\x13\n\x0boutput_path\x18\x05 \x01(\t\x12\x19\n\x11map_function_path\x18\x06 \x01(\t\x12\x1c\n\x14reduce_function_path\x18\x07 \x01(\t\x12\x14\n\x0cpartition_id\x18\x08 \x01(\x05\x12\x18\n\x10num_reduce_tasks\x18\t \x01(\x05\"r\n\nTaskResult\x12\x0f\n\x07task_id\x18\x01 \x01(\t\x12\x16\n\x0eworker_address\x18\x02 \x01(\t\x12\x0f\n\x07success\x18\x03 \x01(\x08\x12\x15\n\rerror_message\x18\x04 \x01(\t\x12\x13\n\x0boutput_path\x18\x05 \x01(\t\"6\n\tHeartbeat\x12\x16\n\x0eworker_address\x18\x01 \x01(\t\x12\x11\n\ttimestamp\x18\x02 \x01(\x03\"\x1a\n\x0cHeartbeatAck\x12\n\n\x02ok\x18\x01 \x01(\x08*\x1f\n\x08TaskType\x12\x07\n\x03MAP\x10\x00\x12\n\n\x06REDUCE\x10\x01\x32s\n\x06Master\x12\x32\n\tSubmitJob\x12\x11.SubmitJobRequest\x1a\x12.JobStatusResponse\x12\x35\n\x0cGetJobStatus\x12\x11.JobStatusRequest\x1a\x12.JobStatusResponse2a\n\x06Worker\x12+\n\x0b\x45xecuteTask\x12\x0f.TaskAssignment\x1a\x0b.TaskResult\x12*\n\rSendHeartbeat\x12\n.Heartbeat\x1a\r.HeartbeatAckb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'map_reduce_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_SCHEDULEJOBREQUEST']._serialized_start=21
-  _globals['_SCHEDULEJOBREQUEST']._serialized_end=201
-  _globals['_GETJOBSTATUSREQUEST']._serialized_start=203
-  _globals['_GETJOBSTATUSREQUEST']._serialized_end=240
-  _globals['_JOBSTATUS']._serialized_start=242
-  _globals['_JOBSTATUS']._serialized_end=319
-  _globals['_SCHEDULER']._serialized_start=321
-  _globals['_SCHEDULER']._serialized_end=428
+  _globals['_TASKTYPE']._serialized_start=821
+  _globals['_TASKTYPE']._serialized_end=852
+  _globals['_SUBMITJOBREQUEST']._serialized_start=21
+  _globals['_SUBMITJOBREQUEST']._serialized_end=167
+  _globals['_JOBSTATUSREQUEST']._serialized_start=169
+  _globals['_JOBSTATUSREQUEST']._serialized_end=203
+  _globals['_JOBSTATUSRESPONSE']._serialized_start=205
+  _globals['_JOBSTATUSRESPONSE']._serialized_end=292
+  _globals['_WORKERREGISTRATION']._serialized_start=294
+  _globals['_WORKERREGISTRATION']._serialized_end=338
+  _globals['_REGISTRATIONACK']._serialized_start=340
+  _globals['_REGISTRATIONACK']._serialized_end=391
+  _globals['_TASKASSIGNMENT']._serialized_start=394
+  _globals['_TASKASSIGNMENT']._serialized_end=619
+  _globals['_TASKRESULT']._serialized_start=621
+  _globals['_TASKRESULT']._serialized_end=735
+  _globals['_HEARTBEAT']._serialized_start=737
+  _globals['_HEARTBEAT']._serialized_end=791
+  _globals['_HEARTBEATACK']._serialized_start=793
+  _globals['_HEARTBEATACK']._serialized_end=819
+  _globals['_MASTER']._serialized_start=854
+  _globals['_MASTER']._serialized_end=969
+  _globals['_WORKER']._serialized_start=971
+  _globals['_WORKER']._serialized_end=1068
 # @@protoc_insertion_point(module_scope)
