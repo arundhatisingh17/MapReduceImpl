@@ -73,8 +73,15 @@ python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. map_reduce.p
 # 11. Submit a MapReduce job (from host)
 python3 client.py
 
-# 12. Check results
-docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls -h /output/'
+# 12. Check results (note: must use full HDFS URI)
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls -h hdfs://namenode:9000/output/'
+
+# 13. View MapReduce job logs
+# Use appropriate job ID from step 11 output
+docker logs mapreduce-master-1 2>&1 | grep "job-<job-id>"
+
+# 14. Verify output correctness
+# See "Verifying Results" section below for complete verification script
 ```
 
 For detailed explanations of each step, see the sections below.
@@ -371,32 +378,88 @@ docker compose logs -f master
 docker compose logs -f
 ```
 
-Master logs show:
-- Job submission and ID assignment
-- Map phase progress
-- Reduce phase progress
-- Task failures and reassignments
-- Job completion with statistics
+Master logs show detailed execution with enhanced logging:
+- ✓ Worker registrations and heartbeats
+- → Task assignments (MAP/REDUCE) with worker addresses
+- ✓ Task completions with worker identification
+- ====== Phase boundaries (MAP phase, REDUCE phase)
+- Job completion with duration and statistics
+
+**Example log output:**
+```
+[MASTER] ✓ New worker registered: 172.18.0.5:50053
+[MASTER]   Total workers: 1
+...
+[MASTER] Received job submission: job-9e7b2fe1
+[MASTER]   Dataset: hdfs://namenode:9000/data/test_10mb.parquet
+[MASTER]   Map tasks: 8
+[MASTER]   Reduce tasks: 4
+[MASTER] 4 workers available
+
+[MASTER] ====== Starting MAP phase for job job-9e7b2fe1 ======
+[MASTER]   Number of map tasks: 8
+[MASTER] → Assigning MAP task job-9e7b2fe1-map-0 to worker 172.18.0.5:50053
+[MASTER] → Assigning MAP task job-9e7b2fe1-map-1 to worker 172.18.0.9:50053
+[MASTER] ✓ MAP task job-9e7b2fe1-map-0 completed by 172.18.0.5:50053
+[MASTER] ✓ MAP task job-9e7b2fe1-map-1 completed by 172.18.0.9:50053
+...
+[MASTER] ====== MAP phase completed for job job-9e7b2fe1 ======
+
+[MASTER] ====== Starting REDUCE phase for job job-9e7b2fe1 ======
+[MASTER]   Number of reduce tasks: 4
+[MASTER] → Assigning REDUCE task job-9e7b2fe1-reduce-0 to worker 172.18.0.5:50053
+[MASTER] ✓ REDUCE task job-9e7b2fe1-reduce-0 completed by 172.18.0.5:50053
+...
+[MASTER] ====== REDUCE phase completed for job job-9e7b2fe1 ======
+
+[MASTER] Job job-9e7b2fe1 COMPLETED in 8.85s
+[MASTER]   Failures: 0
+[MASTER]   Reassignments: 0
+```
+
+Worker logs show task execution:
+```
+[WORKER 2183fcacf3c4] ✓ Successfully registered with master
+[WORKER 2183fcacf3c4] Heartbeat thread started
+[WORKER 2183fcacf3c4] Received task: job-1e6b18cf-map-3 (type: 0)
+[WORKER 2183fcacf3c4] Task job-1e6b18cf-map-3 completed successfully (total: 1)
+[WORKER 2183fcacf3c4] Received task: job-1e6b18cf-reduce-3 (type: 1)
+[WORKER 2183fcacf3c4] Task job-1e6b18cf-reduce-3 completed successfully (total: 2)
+[WORKER 2183fcacf3c4] ♥ Heartbeat sent to master
+```
 
 ## Accessing Results
 
 ### List Output Files
 
+**Important:** Always use the full HDFS URI `hdfs://namenode:9000/` prefix for reliability:
+
 ```bash
-# List output directory with proper CLASSPATH
-docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls -h /output/'
+# List all job outputs
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls -h hdfs://namenode:9000/output/'
 
-# List specific job output
-docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls -h /output/job-<job-id>/'
+# List specific job output (replace <job-id> with actual job ID)
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls -h hdfs://namenode:9000/output/job-<job-id>/'
 ```
 
-Each job creates output files:
+Example output:
 ```
-/output/job-abc123/part-0.parquet
-/output/job-abc123/part-1.parquet
-/output/job-abc123/part-2.parquet
-/output/job-abc123/part-3.parquet
+Found 4 items
+-rw-r--r--   3 root supergroup      2.3 K 2025-11-11 04:54 hdfs://namenode:9000/output/job-1e6b18cf/part-0.parquet
+-rw-r--r--   3 root supergroup      2.3 K 2025-11-11 04:54 hdfs://namenode:9000/output/job-1e6b18cf/part-1.parquet
+-rw-r--r--   3 root supergroup      2.2 K 2025-11-11 04:54 hdfs://namenode:9000/output/job-1e6b18cf/part-2.parquet
+-rw-r--r--   3 root supergroup      2.3 K 2025-11-11 04:54 hdfs://namenode:9000/output/job-1e6b18cf/part-3.parquet
 ```
+
+Each job creates output files (one per reduce task):
+```
+/output/job-abc123/part-0.parquet  # Results for keys hashed to partition 0
+/output/job-abc123/part-1.parquet  # Results for keys hashed to partition 1
+/output/job-abc123/part-2.parquet  # Results for keys hashed to partition 2
+/output/job-abc123/part-3.parquet  # Results for keys hashed to partition 3
+```
+
+**Important:** Keys are distributed across partitions by hash. To get complete aggregated results for a specific key (like `x_bucket_0_sum`), you must read ALL partitions and sum the partial results.
 
 ### Option 1: Read Results Inside Container (Recommended)
 
@@ -476,6 +539,150 @@ print(df)
 ```
 
 **Note:** This requires Java 11+ and proper environment variables (`JAVA_HOME`, `CLASSPATH`) set on your host. The container-based approach (Option 1) is recommended as it avoids host configuration issues.
+
+## Verifying Results
+
+### Quick View: See Output Data
+
+To quickly see what your MapReduce job calculated:
+
+```bash
+# Read output from a single partition (replace <job-id>)
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && python3 << "EOF"
+import pyarrow.parquet as pq
+import pyarrow as pa
+
+fs = pa.fs.HadoopFileSystem("namenode", 9000)
+table = pq.read_table("/output/job-<job-id>/part-0.parquet", filesystem=fs)
+df = table.to_pandas()
+print("Sample output from partition 0:")
+print(df.head(20))
+print(f"\nTotal rows in partition 0: {len(df)}")
+EOF'
+```
+
+**Example output:**
+```
+Sample output from partition 0:
+              key          value
+0  x_bucket_0_sum  128794.252537
+1  x_bucket_0_count    2597.000000
+2  x_bucket_0_avg      49.593474
+3  x_bucket_10_sum  321684.425506
+4  x_bucket_10_count    6553.000000
+5  x_bucket_10_avg      49.089642
+...
+
+Total rows in partition 0: 42
+```
+
+Each row represents an aggregated statistic:
+- `x_bucket_0_sum`: Total sum of values where x ∈ [0,9]
+- `x_bucket_0_count`: Number of records where x ∈ [0,9]
+- `x_bucket_0_avg`: Average value where x ∈ [0,9]
+
+### Verify Calculations
+
+The example map/reduce functions calculate statistics (sum, count, average) for bucketed data. Here's how to verify correctness:
+
+```bash
+# Replace <job-id> with your actual job ID
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && python3 << "EOF"
+import pyarrow.parquet as pq
+import pyarrow as pa
+import pandas as pd
+
+fs = pa.fs.HadoopFileSystem("namenode", 9000)
+
+# Read input data
+input_table = pq.read_table("/data/test_10mb.parquet", filesystem=fs)
+input_df = input_table.to_pandas()
+
+print("INPUT DATA")
+print(f"Total rows: {len(input_df):,}")
+print(f"Columns: {list(input_df.columns)}")
+
+# Calculate expected values for x_bucket_0 (x values 0-9)
+x_bucket_0_data = input_df[input_df["x"] < 10]
+expected_sum = x_bucket_0_data["value"].sum()
+expected_count = len(x_bucket_0_data)
+expected_avg = expected_sum / expected_count
+
+print(f"\nEXPECTED (x_bucket_0):")
+print(f"  Sum:     {expected_sum:.6f}")
+print(f"  Count:   {expected_count}")
+print(f"  Average: {expected_avg:.6f}")
+
+# Read MapReduce output from all partitions
+dfs = []
+for i in range(4):
+    table = pq.read_table(f"/output/<job-id>/part-{i}.parquet", filesystem=fs)
+    dfs.append(table.to_pandas())
+output_df = pd.concat(dfs, ignore_index=True)
+
+# Aggregate partial results across partitions
+mr_sum = output_df[output_df["key"] == "x_bucket_0_sum"]["value"].sum()
+mr_count = output_df[output_df["key"] == "x_bucket_0_count"]["value"].sum()
+mr_avg = mr_sum / mr_count
+
+print(f"\nMAPREDUCE OUTPUT (x_bucket_0):")
+print(f"  Sum:     {mr_sum:.6f}")
+print(f"  Count:   {mr_count:.0f}")
+print(f"  Average: {mr_avg:.6f}")
+
+# Verify
+sum_ok = abs(mr_sum - expected_sum) < 0.01
+count_ok = mr_count == expected_count
+avg_ok = abs(mr_avg - expected_avg) < 0.01
+
+print(f"\nVERIFICATION:")
+print(f"  Sum:     {'✓ CORRECT' if sum_ok else '✗ INCORRECT'}")
+print(f"  Count:   {'✓ CORRECT' if count_ok else '✗ INCORRECT'}")
+print(f"  Average: {'✓ CORRECT' if avg_ok else '✗ INCORRECT'}")
+
+if sum_ok and count_ok and avg_ok:
+    print("\n✅ MapReduce calculations are CORRECT!")
+else:
+    print("\n❌ MapReduce calculations have errors")
+EOF'
+```
+
+**What the job calculates:**
+- The map function groups records into buckets based on x and y values (0-9, 10-19, 20-29, etc.)
+- The reduce function computes sum, count, and average for each bucket
+- Each output key has a suffix: `_sum`, `_count`, or `_avg`
+- Results are distributed across 4 output partitions (by key hash)
+
+**Expected behavior:**
+- For 104,857 input rows with x values 0-99, each bucket should have ~10,000 records
+- The MapReduce output should exactly match manual calculations from the input
+- All calculations should show "✓ CORRECT" when verified
+
+**Example verification output:**
+```
+INPUT DATA
+Total rows: 104,857
+Columns: ['id', 'x', 'y', 'value', 'category', 'text']
+
+EXPECTED (x_bucket_0):
+  Sum:     522928.788518
+  Count:   10493
+  Average: 49.835966
+
+MAPREDUCE OUTPUT (x_bucket_0):
+  Sum:     522928.788518
+  Count:   10493
+  Average: 49.835966
+
+VERIFICATION:
+  Sum:     ✓ CORRECT
+  Count:   ✓ CORRECT
+  Average: ✓ CORRECT
+
+✅ MapReduce calculations are CORRECT!
+```
+
+**Note:** The partial sums/counts across the 4 output partitions must be aggregated to get final results. Each partition contains a subset of the keys based on their hash.
 
 ## Worker Failure Testing
 
@@ -581,11 +788,11 @@ docker compose restart
 ### Job Fails Immediately
 
 ```bash
-# Check if input file exists in HDFS
-docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls /data/'
+# Check if input file exists in HDFS (use full URI)
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls hdfs://namenode:9000/data/'
 
-# Verify user functions are present
-docker compose exec mapreduce-worker-1 ls -la /user_funcs/
+# Verify user functions are present (check any worker)
+docker compose exec master bash -c 'docker exec mapreduce-worker-1 ls -la /user_funcs/ 2>/dev/null || echo "Use: docker exec mapreduce-worker-1 ls -la /user_funcs/"'
 ```
 
 ### HDFS Commands Return Local Filesystem
