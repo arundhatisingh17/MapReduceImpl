@@ -67,10 +67,11 @@ message HeartbeatAck {
 
 // ========== Services ==========
 
-// Master service - handles client job submissions
+// Master service - handles client job submissions and worker registration
 service Master {
   rpc SubmitJob(SubmitJobRequest) returns (JobStatusResponse);
   rpc GetJobStatus(JobStatusRequest) returns (JobStatusResponse);
+  rpc RegisterWorker(WorkerRegistration) returns (RegistrationAck);
 }
 
 // Worker service - handles task execution

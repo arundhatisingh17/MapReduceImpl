@@ -76,8 +76,8 @@ class WorkerService(map_reduce_pb2_grpc.WorkerServicer):
         table = pq.read_table(input_path, filesystem=fs)
         df = table.to_pandas()
         
-        # Dynamically load map function
-        map_func = self._load_user_function('/app/user_funcs/map_func.py', 'map_function')
+        # Dynamically load map function from the path specified in the task
+        map_func = self._load_user_function(task.map_function_path, 'map_function')
         
         # Execute map function on each record
         # Collect results partitioned by key hash
@@ -142,8 +142,8 @@ class WorkerService(map_reduce_pb2_grpc.WorkerServicer):
         # Group by key
         grouped = combined_df.groupby('key')['value'].apply(list).reset_index()
         
-        # Dynamically load reduce function
-        reduce_func = self._load_user_function('/app/user_funcs/reduce_func.py', 'reduce_function')
+        # Dynamically load reduce function from the path specified in the task
+        reduce_func = self._load_user_function(task.reduce_function_path, 'reduce_function')
         
         # Execute reduce function on each key-values pair
         results = []
@@ -192,26 +192,62 @@ def register_with_master(worker_id, worker_address):
             channel = grpc.insecure_channel("master:50051")
             stub = map_reduce_pb2_grpc.MasterStub(channel)
             
-            # Note: Master service doesn't have RegisterWorker RPC
-            # Workers are discovered when they accept tasks
-            # For now, just verify master is reachable
-            print(f"[WORKER {worker_id}] Master service is reachable")
-            return True
+            # Register with master
+            registration = map_reduce_pb2.WorkerRegistration(worker_address=worker_address)
+            response = stub.RegisterWorker(registration, timeout=10)
+            
+            if response.success:
+                print(f"[WORKER {worker_id}] ✓ Successfully registered with master")
+                print(f"[WORKER {worker_id}]   Address: {worker_address}")
+                print(f"[WORKER {worker_id}]   Message: {response.message}")
+                return True
+            else:
+                print(f"[WORKER {worker_id}] Registration failed: {response.message}")
                 
         except Exception as e:
             retry_count += 1
-            print(f"[WORKER {worker_id}] Failed to connect to master (attempt {retry_count}/{max_retries}): {e}")
+            print(f"[WORKER {worker_id}] Failed to register (attempt {retry_count}/{max_retries}): {e}")
             time.sleep(5)
     
-    print(f"[WORKER {worker_id}] Failed to connect to master after {max_retries} attempts")
+    print(f"[WORKER {worker_id}] Failed to register with master after {max_retries} attempts")
     return False
 
 
 def get_worker_address():
-    """Get the worker's address"""
-    hostname = socket.gethostname()
-    # In Docker, use hostname:port
-    return f"{hostname}:50053"
+    """Get the worker's IP address for communication"""
+    # Get the container's IP address on the Docker network
+    # This is more reliable than hostname in Docker Compose
+    try:
+        # Get our IP address by connecting to the master
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("master", 50051))
+        ip_address = s.getsockname()[0]
+        s.close()
+        return f"{ip_address}:50053"
+    except Exception as e:
+        # Fallback to hostname if we can't get IP
+        hostname = socket.gethostname()
+        print(f"[WORKER] Warning: Could not get IP address, using hostname: {hostname}")
+        return f"{hostname}:50053"
+
+
+def send_heartbeats(worker_id, worker_address):
+    """Send periodic heartbeats to master to stay registered"""
+    while True:
+        try:
+            time.sleep(30)  # Send heartbeat every 30 seconds
+            channel = grpc.insecure_channel("master:50051")
+            stub = map_reduce_pb2_grpc.MasterStub(channel)
+            
+            # Re-register as a heartbeat mechanism
+            registration = map_reduce_pb2.WorkerRegistration(worker_address=worker_address)
+            response = stub.RegisterWorker(registration, timeout=5)
+            
+            if response.success:
+                print(f"[WORKER {worker_id}] ♥ Heartbeat sent to master")
+            
+        except Exception as e:
+            print(f"[WORKER {worker_id}] Failed to send heartbeat: {e}")
 
 
 def serve(worker_id, fail_after=None):
@@ -231,6 +267,11 @@ def serve(worker_id, fail_after=None):
     # Connect to master
     if not register_with_master(worker_id, worker_address):
         print(f"[WORKER {worker_id}] Failed to connect to master, but continuing to serve")
+    else:
+        # Start heartbeat thread
+        heartbeat_thread = threading.Thread(target=send_heartbeats, args=(worker_id, worker_address), daemon=True)
+        heartbeat_thread.start()
+        print(f"[WORKER {worker_id}] Heartbeat thread started")
     
     # Keep server running
     server.wait_for_termination()

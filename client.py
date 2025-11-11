@@ -2,7 +2,6 @@ import grpc
 import map_reduce_pb2
 import map_reduce_pb2_grpc
 import time
-import dataset_generator
 
 def submit_job():
     """Submit a MapReduce job to the master"""
@@ -18,8 +17,8 @@ def submit_job():
         dataset_path="hdfs://namenode:9000/data/test_10mb.parquet",
         num_map_tasks=8,
         num_reduce_tasks=4,
-        map_function_path="/user_funcs/map_func.py",
-        reduce_function_path="/user_funcs/reduce_func.py"
+        map_function_path="/user_funcs/map_func.py",  # Path inside worker container
+        reduce_function_path="/user_funcs/reduce_func.py"  # Path inside worker container
     )
 
     print("[CLIENT] Submitting job to master...")

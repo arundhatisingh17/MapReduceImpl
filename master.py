@@ -87,6 +87,32 @@ class MasterService(map_reduce_pb2_grpc.MasterServicer):
                 error=job['error']
             )
     
+    def RegisterWorker(self, request, context):
+        """Register a worker with the master"""
+        worker_address = request.worker_address
+        
+        with self.lock:
+            if worker_address in self.workers:
+                print(f"[MASTER] ✓ Worker re-registered: {worker_address}")
+                # Update heartbeat for existing worker
+                self.workers[worker_address]['last_heartbeat'] = time.time()
+                message = "Worker re-registered successfully"
+            else:
+                self.workers[worker_address] = {
+                    'last_heartbeat': time.time(),
+                    'status': 'idle',
+                    'current_task': None,
+                    'tasks_completed': 0
+                }
+                print(f"[MASTER] ✓ New worker registered: {worker_address}")
+                print(f"[MASTER]   Total workers: {len(self.workers)}")
+                message = "Worker registered successfully"
+        
+        return map_reduce_pb2.RegistrationAck(
+            success=True,
+            message=message
+        )
+    
     def _execute_job(self, job_id, request):
         """Execute a complete MapReduce job"""
         try:
@@ -95,13 +121,17 @@ class MasterService(map_reduce_pb2_grpc.MasterServicer):
             
             # Phase 1: Map Phase
             self._update_job_status(job_id, 'MAP_IN_PROGRESS')
-            print(f"[MASTER] Starting MAP phase for job {job_id}")
+            print(f"\n[MASTER] ====== Starting MAP phase for job {job_id} ======")
+            print(f"[MASTER]   Number of map tasks: {request.num_map_tasks}")
             self._execute_map_phase(job_id, request)
+            print(f"[MASTER] ====== MAP phase completed for job {job_id} ======\n")
             
             # Phase 2: Reduce Phase
             self._update_job_status(job_id, 'REDUCE_IN_PROGRESS')
-            print(f"[MASTER] Starting REDUCE phase for job {job_id}")
+            print(f"\n[MASTER] ====== Starting REDUCE phase for job {job_id} ======")
+            print(f"[MASTER]   Number of reduce tasks: {request.num_reduce_tasks}")
             self._execute_reduce_phase(job_id, request)
+            print(f"[MASTER] ====== REDUCE phase completed for job {job_id} ======\n")
             
             # Job completed
             self._update_job_status(job_id, 'COMPLETED')
@@ -188,6 +218,10 @@ class MasterService(map_reduce_pb2_grpc.MasterServicer):
                 if retry_count >= self.MAX_RETRIES:
                     raise Exception(f"Task {task_id} exceeded max retries ({self.MAX_RETRIES})")
                 
+                # Log task assignment
+                task_type = "MAP" if task_assignment.task_type == map_reduce_pb2.MAP else "REDUCE"
+                print(f"[MASTER] → Assigning {task_type} task {task_id} to worker {worker_address}")
+                
                 # Execute task asynchronously
                 thread = threading.Thread(
                     target=self._execute_task_on_worker,
@@ -214,18 +248,32 @@ class MasterService(map_reduce_pb2_grpc.MasterServicer):
     
     def _execute_task_on_worker(self, worker_address, task_assignment, task_id, job_id, task_queue, task_retry_counts):
         """Execute a single task on a worker"""
+        task_type = "MAP" if task_assignment.task_type == map_reduce_pb2.MAP else "REDUCE"
+        
         try:
             channel = grpc.insecure_channel(worker_address)
             stub = map_reduce_pb2_grpc.WorkerStub(channel)
             
-            print(f"[MASTER] Executing task {task_id} on worker {worker_address}")
             response = stub.ExecuteTask(task_assignment, timeout=self.TASK_TIMEOUT)
             
             with self.lock:
                 if response.success:
                     self.active_tasks[task_id]['status'] = 'COMPLETED'
                     self.completed_tasks.add(task_id)
-                    print(f"[MASTER] Task {task_id} completed successfully")
+                    
+                    # Update worker stats
+                    if worker_address in self.workers:
+                        self.workers[worker_address]['tasks_completed'] = self.workers[worker_address].get('tasks_completed', 0) + 1
+                        self.workers[worker_address]['current_task'] = None
+                    
+                    # Update job stats
+                    if job_id in self.jobs:
+                        if task_type == "MAP":
+                            self.jobs[job_id]['map_tasks_completed'] += 1
+                        else:
+                            self.jobs[job_id]['reduce_tasks_completed'] += 1
+                    
+                    print(f"[MASTER] ✓ {task_type} task {task_id} completed by {worker_address}")
                 else:
                     # Task failed, re-queue it
                     self.active_tasks[task_id]['status'] = 'FAILED'
@@ -363,13 +411,19 @@ class MasterService(map_reduce_pb2_grpc.MasterServicer):
     def _monitor_workers(self):
         """Monitor worker health"""
         while True:
-            time.sleep(10)
+            time.sleep(30)  # Check every 30 seconds
             current_time = time.time()
             
             with self.lock:
+                down_workers = []
                 for worker_address, info in list(self.workers.items()):
                     if current_time - info.get('last_heartbeat', 0) > self.WORKER_TIMEOUT:
-                        print(f"[MASTER] Worker {worker_address} appears to be down")
+                        down_workers.append(worker_address)
+                
+                # Only log if there are down workers
+                if down_workers:
+                    for worker_address in down_workers:
+                        print(f"[MASTER] ⚠ Worker {worker_address} appears to be down (last heartbeat > {self.WORKER_TIMEOUT}s ago)")
                         # Worker tasks will be handled by timeout mechanism
     
     def _update_job_status(self, job_id, status, error=''):

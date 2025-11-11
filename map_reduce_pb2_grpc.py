@@ -28,7 +28,7 @@ if _version_not_supported:
 class MasterStub(object):
     """========== Services ==========
 
-    Master service - handles client job submissions
+    Master service - handles client job submissions and worker registration
     """
 
     def __init__(self, channel):
@@ -47,12 +47,17 @@ class MasterStub(object):
                 request_serializer=map__reduce__pb2.JobStatusRequest.SerializeToString,
                 response_deserializer=map__reduce__pb2.JobStatusResponse.FromString,
                 _registered_method=True)
+        self.RegisterWorker = channel.unary_unary(
+                '/Master/RegisterWorker',
+                request_serializer=map__reduce__pb2.WorkerRegistration.SerializeToString,
+                response_deserializer=map__reduce__pb2.RegistrationAck.FromString,
+                _registered_method=True)
 
 
 class MasterServicer(object):
     """========== Services ==========
 
-    Master service - handles client job submissions
+    Master service - handles client job submissions and worker registration
     """
 
     def SubmitJob(self, request, context):
@@ -62,6 +67,12 @@ class MasterServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def GetJobStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RegisterWorker(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -80,6 +91,11 @@ def add_MasterServicer_to_server(servicer, server):
                     request_deserializer=map__reduce__pb2.JobStatusRequest.FromString,
                     response_serializer=map__reduce__pb2.JobStatusResponse.SerializeToString,
             ),
+            'RegisterWorker': grpc.unary_unary_rpc_method_handler(
+                    servicer.RegisterWorker,
+                    request_deserializer=map__reduce__pb2.WorkerRegistration.FromString,
+                    response_serializer=map__reduce__pb2.RegistrationAck.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'Master', rpc_method_handlers)
@@ -91,7 +107,7 @@ def add_MasterServicer_to_server(servicer, server):
 class Master(object):
     """========== Services ==========
 
-    Master service - handles client job submissions
+    Master service - handles client job submissions and worker registration
     """
 
     @staticmethod
@@ -138,6 +154,33 @@ class Master(object):
             '/Master/GetJobStatus',
             map__reduce__pb2.JobStatusRequest.SerializeToString,
             map__reduce__pb2.JobStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RegisterWorker(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/Master/RegisterWorker',
+            map__reduce__pb2.WorkerRegistration.SerializeToString,
+            map__reduce__pb2.RegistrationAck.FromString,
             options,
             channel_credentials,
             insecure,

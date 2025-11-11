@@ -7,6 +7,6 @@ RUN python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. map_redu
 # Copy master code
 COPY master.py ./
 
-# Find HDFS and start master
-CMD export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && python3 master.py
+# Find HDFS and start master (unbuffered for real-time logging)
+CMD export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && python3 -u master.py
 
