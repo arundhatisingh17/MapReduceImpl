@@ -55,8 +55,8 @@ def generate_dataset(size_mb, output_path):
     # Write to HDFS
     print(f"Writing to {output_path}...")
     try:
-        fs = pa.fs.HadoopFileSystem("nn", 9000)
-        hdfs_path = output_path.replace("hdfs://nn:9000", "")
+        fs = pa.fs.HadoopFileSystem("namenode", 9000)
+        hdfs_path = output_path.replace("hdfs://namenode:9000", "").replace("hdfs://nn:9000", "")
         
         table = pa.Table.from_pandas(df, preserve_index=False)
         pq.write_table(table, hdfs_path, filesystem=fs)
@@ -100,7 +100,7 @@ def main():
     if args.output:
         output_path = args.output
     else:
-        output_path = f"hdfs://nn:9000/data/test_{args.size.lower()}.parquet"
+        output_path = f"hdfs://namenode:9000/data/test_{args.size.lower()}.parquet"
     
     generate_dataset(size_mb, output_path)
 

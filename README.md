@@ -32,6 +32,50 @@ Client (host) ──gRPC──> Master ──gRPC──> Workers (4x)
 - Python 3.10+ (for client running on host)
 - At least 8GB RAM and 4 CPU cores recommended
 
+## Quick Start
+
+Here's a complete workflow to test the system:
+
+```bash
+# 1. Set project name and navigate to directory
+export PROJECT=mapreduce
+cd /home/shukla35/MapReduceImpl
+
+# 2. Build the base HDFS image
+docker build -t mapreduce-hdfs -f Dockerfile.hdfs .
+
+# 3. Build all services
+docker compose build
+
+# 4. Start all services
+docker compose up -d
+
+# 5. Wait a few seconds for HDFS to initialize, then verify services
+docker compose ps
+
+# 6. Copy data generation script to master container
+docker cp create_test_data.py mapreduce-master-1:/create_test_data.py
+
+# 7. Generate test data (must run inside container)
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && python3 /create_test_data.py --size 10MB'
+
+# 8. Verify data in HDFS
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls -h /data/'
+
+# 9. Set up Python virtual environment on host (for client)
+python3 -m venv venv
+source venv/bin/activate
+pip install grpcio grpcio-tools
+
+# 10. Submit a MapReduce job (from host)
+python3 client.py
+
+# 11. Check results
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls -h /output/'
+```
+
+For detailed explanations of each step, see the sections below.
+
 ## Building the System
 
 ### 1. Set Project Name
@@ -61,15 +105,39 @@ This builds:
 - `mapreduce-master`: Master coordinator
 - `mapreduce-worker`: Worker nodes (4 replicas)
 
-## Installation
+## Setting up the Python Environment
 
 ### For Client (Running on Host)
 
-Install required Python packages on your host machine:
+The client script (`client.py`) runs on your host machine and communicates with the Master service via gRPC. You need to install the gRPC Python packages on your host.
 
-```bash
-pip install grpcio grpcio-tools pandas pyarrow
-```
+It is recommended to use a virtual environment to manage Python dependencies:
+
+1.  **Create a virtual environment:**
+
+    ```bash
+    python3 -m venv venv
+    ```
+
+2.  **Activate the virtual environment:**
+
+    -   On macOS and Linux:
+        ```bash
+        source venv/bin/activate
+        ```
+    -   On Windows:
+        ```bash
+        .\\venv\\Scripts\\activate
+        ```
+
+3.  **Install required packages:**
+
+    With the virtual environment activated, install the gRPC packages:
+    ```bash
+    pip install grpcio grpcio-tools
+    ```
+
+**Note:** You do NOT need to install Hadoop, Java, PyArrow, or Pandas on your host machine. These are already installed in the Docker containers. Any scripts that interact with HDFS (like `create_test_data.py`) must be run inside a container.
 
 ## Starting the System
 
@@ -118,22 +186,36 @@ docker compose logs -f
 
 ### Generate Test Datasets
 
-The system includes a test data generator:
+The system includes a test data generator that **must be run inside a container** (it requires access to HDFS libraries):
 
 ```bash
-# Generate sample dataset (run from host or inside a worker container)
-python3 create_test_data.py --size 10MB
+# Generate sample dataset (run inside master container)
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && python3 /create_test_data.py --size 10MB'
 ```
 
-This creates a Parquet file at `/data/sample.parquet` in HDFS.
+This creates a Parquet file in HDFS at `/data/test_10mb.parquet`.
 
 Supported sizes: `1MB`, `10MB`, `100MB`, `500MB`, or `1GB`
+
+**Note:** The script is copied to the container as `/create_test_data.py`. If you modify the script, copy it to the container:
+```bash
+docker cp create_test_data.py mapreduce-master-1:/create_test_data.py
+```
 
 ### Verify Data Upload
 
 ```bash
-docker compose exec namenode hadoop fs -ls /data/
-docker compose exec namenode hadoop fs -du -h /data/
+# Using HDFS commands inside a container with proper CLASSPATH
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls -h hdfs://namenode:9000/data/'
+
+# Or use hadoop fs command (shorter, but less explicit)
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hadoop fs -ls -h /data/'
+```
+
+Expected output:
+```
+Found 1 items
+-rw-r--r--   3 root supergroup      2.7 M <timestamp> hdfs://namenode:9000/data/test_10mb.parquet
 ```
 
 ### View HDFS Web UI
@@ -289,8 +371,11 @@ Master logs show:
 ### List Output Files
 
 ```bash
-docker compose exec namenode hadoop fs -ls /output/
-docker compose exec namenode hadoop fs -ls /output/job-<job-id>/
+# List output directory with proper CLASSPATH
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls -h /output/'
+
+# List specific job output
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls -h /output/job-<job-id>/'
 ```
 
 Each job creates output files:
@@ -301,45 +386,84 @@ Each job creates output files:
 /output/job-abc123/part-3.parquet
 ```
 
-### Download and Read Results
+### Option 1: Read Results Inside Container (Recommended)
 
-From the host machine:
+Create a Python script inside a container to read and analyze results:
+
+```bash
+# Create a script to read results
+docker compose exec master bash -c 'cat > /read_results.py << "EOF"
+import pyarrow.parquet as pq
+import pyarrow as pa
+import sys
+
+job_id = sys.argv[1] if len(sys.argv) > 1 else "job-abc123"
+
+# Connect to HDFS
+fs = pa.fs.HadoopFileSystem("namenode", 9000)
+
+# Read first partition
+table = pq.read_table(f"/output/{job_id}/part-0.parquet", filesystem=fs)
+df = table.to_pandas()
+print(df.head(10))
+print(f"\nTotal rows in part-0: {len(df)}")
+EOF'
+
+# Run the script
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && python3 /read_results.py job-abc123'
+```
+
+### Option 2: Download Results to Host
+
+Download Parquet files from HDFS to your local machine:
+
+```bash
+# Create local output directory
+mkdir -p ./results
+
+# Download all partitions
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -get /output/job-abc123/*.parquet /tmp/'
+docker cp mapreduce-master-1:/tmp/part-0.parquet ./results/
+docker cp mapreduce-master-1:/tmp/part-1.parquet ./results/
+# ... repeat for all partitions
+```
+
+Then read locally with Python (on your host):
+
+```python
+import pandas as pd
+import pyarrow.parquet as pq
+
+# Read a partition
+df = pd.read_parquet('./results/part-0.parquet')
+print(df.head())
+
+# Or read all partitions
+import glob
+files = glob.glob('./results/part-*.parquet')
+dfs = [pd.read_parquet(f) for f in files]
+final_df = pd.concat(dfs, ignore_index=True)
+print(f"Total rows: {len(final_df)}")
+```
+
+### Option 3: Read Directly from Host (Requires Java Setup)
+
+If you have Java and Hadoop libraries installed on your host:
 
 ```python
 import pyarrow.parquet as pq
 import pyarrow as pa
 
-# Connect to HDFS
+# Connect to HDFS (requires Java/libhdfs on host)
 fs = pa.fs.HadoopFileSystem("localhost", 9000)
 
-# Read a partition
+# Read partitions
 table = pq.read_table("/output/job-abc123/part-0.parquet", filesystem=fs)
 df = table.to_pandas()
 print(df)
 ```
 
-### Merge All Partitions
-
-```python
-import pandas as pd
-import pyarrow.parquet as pq
-import pyarrow as pa
-
-fs = pa.fs.HadoopFileSystem("localhost", 9000)
-
-# Read all partitions
-job_id = "job-abc123"
-num_partitions = 4
-dfs = []
-
-for i in range(num_partitions):
-    table = pq.read_table(f"/output/{job_id}/part-{i}.parquet", filesystem=fs)
-    dfs.append(table.to_pandas())
-
-# Combine
-final_df = pd.concat(dfs, ignore_index=True)
-print(final_df)
-```
+**Note:** This requires Java 11+ and proper environment variables (`JAVA_HOME`, `CLASSPATH`) set on your host. The container-based approach (Option 1) is recommended as it avoids host configuration issues.
 
 ## Worker Failure Testing
 
@@ -415,9 +539,19 @@ Wait 10-20 seconds for HDFS to fully initialize:
 # Check namenode status
 docker compose logs namenode
 
-# Verify HDFS is accessible
-docker compose exec namenode hadoop fs -ls /
+# Verify HDFS is accessible (use hdfs dfs with full URI)
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls hdfs://namenode:9000/'
 ```
+
+### "Unable to load libhdfs" or "Unable to load libjvm" Errors
+
+These errors occur when trying to run HDFS-dependent scripts from the host machine. **Solution:**
+
+- Always run scripts that interact with HDFS **inside a container** (master or worker)
+- Use `docker compose exec` to run commands inside containers
+- Example: `docker compose exec master bash -c 'export CLASSPATH=... && python3 /script.py'`
+
+The containers have all required libraries (Java, Hadoop, libhdfs) pre-installed. Running on the host requires complex Java/Hadoop setup.
 
 ### Workers Can't Connect to Master
 
@@ -435,11 +569,23 @@ docker compose restart
 ### Job Fails Immediately
 
 ```bash
-# Check if input file exists
-docker compose exec namenode hadoop fs -ls /data/sample.parquet
+# Check if input file exists in HDFS
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls /data/'
 
 # Verify user functions are present
-docker compose exec mapreduce-worker-1 ls -la /app/user_funcs/
+docker compose exec mapreduce-worker-1 ls -la /user_funcs/
+```
+
+### HDFS Commands Return Local Filesystem
+
+If `hadoop fs -ls /` returns your container's filesystem instead of HDFS, use the full HDFS URI:
+
+```bash
+# Wrong (might return local filesystem)
+hadoop fs -ls /
+
+# Correct (explicitly uses HDFS)
+hdfs dfs -ls hdfs://namenode:9000/
 ```
 
 ## Stopping the System
@@ -493,6 +639,39 @@ For detailed architecture and design decisions, see [Design.md](Design.md).
 2. **Task Timeout Detection**: Tasks that take too long are reassigned
 3. **Flexible Task Distribution**: More tasks than workers are automatically queued
 4. **HDFS Integration**: Reliable distributed storage with replication
+
+## Important: Host vs Container Execution
+
+Understanding where to run different components is crucial:
+
+### Run on Host Machine:
+- ✅ `client.py` - Submits jobs via gRPC (requires: `grpcio`, `grpcio-tools`)
+- ✅ Viewing logs: `docker compose logs`
+- ✅ Managing containers: `docker compose up/down`
+
+### Run Inside Containers (via `docker compose exec`):
+- ✅ `create_test_data.py` - Uploads data to HDFS
+- ✅ HDFS commands (`hdfs dfs`, `hadoop fs`)
+- ✅ Any Python scripts that read/write HDFS data
+- ✅ Reading MapReduce results from HDFS
+
+### Why?
+Scripts that interact with HDFS require:
+- Java 11+ (JVM)
+- Hadoop libraries (`libhdfs.so`, `libjvm.so`)
+- Proper `CLASSPATH` environment variable
+
+These are **pre-installed in all containers** but would require complex setup on the host. The container-based approach is simpler, more reliable, and platform-independent.
+
+### Quick Reference
+
+```bash
+# Run client from host (gRPC only, no HDFS access needed)
+python3 client.py
+
+# Run HDFS operations inside container (requires Hadoop libraries)
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && <command>'
+```
 
 ## Contributing
 
