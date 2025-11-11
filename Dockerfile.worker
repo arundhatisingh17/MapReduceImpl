@@ -1,14 +1,12 @@
-FROM python:3.9-slim
+FROM mapreduce-hdfs
 
-WORKDIR /app
+# Copy proto file and generate gRPC code
+COPY map_reduce.proto ./
+RUN python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. map_reduce.proto
 
-RUN pip install grpcio grpcio-tools pandas pyarrow numpy
-
-COPY boss.proto .
-RUN python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. boss.proto
-
-COPY worker.py .
+# Copy worker code and user functions
+COPY worker.py ./
 COPY user_funcs/ ./user_funcs/
 
-EXPOSE 50053
-CMD ["python", "worker.py"]
+# Find HDFS and start worker
+CMD export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && python3 worker.py
