@@ -5,7 +5,7 @@ import warnings
 
 import map_reduce_pb2 as map__reduce__pb2
 
-GRPC_GENERATED_VERSION = '1.75.1'
+GRPC_GENERATED_VERSION = '1.76.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -18,15 +18,18 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + f' but the generated code in map_reduce_pb2_grpc.py depends on'
+        + ' but the generated code in map_reduce_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
     )
 
 
-class SchedulerStub(object):
-    """Missing associated documentation comment in .proto file."""
+class MasterStub(object):
+    """========== Services ==========
+
+    Master service - handles client job submissions and worker registration
+    """
 
     def __init__(self, channel):
         """Constructor.
@@ -35,19 +38,27 @@ class SchedulerStub(object):
             channel: A grpc.Channel.
         """
         self.SubmitJob = channel.unary_unary(
-                '/Scheduler/SubmitJob',
-                request_serializer=map__reduce__pb2.ScheduleJobRequest.SerializeToString,
-                response_deserializer=map__reduce__pb2.JobStatus.FromString,
+                '/Master/SubmitJob',
+                request_serializer=map__reduce__pb2.SubmitJobRequest.SerializeToString,
+                response_deserializer=map__reduce__pb2.JobStatusResponse.FromString,
                 _registered_method=True)
         self.GetJobStatus = channel.unary_unary(
-                '/Scheduler/GetJobStatus',
-                request_serializer=map__reduce__pb2.GetJobStatusRequest.SerializeToString,
-                response_deserializer=map__reduce__pb2.JobStatus.FromString,
+                '/Master/GetJobStatus',
+                request_serializer=map__reduce__pb2.JobStatusRequest.SerializeToString,
+                response_deserializer=map__reduce__pb2.JobStatusResponse.FromString,
+                _registered_method=True)
+        self.RegisterWorker = channel.unary_unary(
+                '/Master/RegisterWorker',
+                request_serializer=map__reduce__pb2.WorkerRegistration.SerializeToString,
+                response_deserializer=map__reduce__pb2.RegistrationAck.FromString,
                 _registered_method=True)
 
 
-class SchedulerServicer(object):
-    """Missing associated documentation comment in .proto file."""
+class MasterServicer(object):
+    """========== Services ==========
+
+    Master service - handles client job submissions and worker registration
+    """
 
     def SubmitJob(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -61,29 +72,43 @@ class SchedulerServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def RegisterWorker(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
-def add_SchedulerServicer_to_server(servicer, server):
+
+def add_MasterServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'SubmitJob': grpc.unary_unary_rpc_method_handler(
                     servicer.SubmitJob,
-                    request_deserializer=map__reduce__pb2.ScheduleJobRequest.FromString,
-                    response_serializer=map__reduce__pb2.JobStatus.SerializeToString,
+                    request_deserializer=map__reduce__pb2.SubmitJobRequest.FromString,
+                    response_serializer=map__reduce__pb2.JobStatusResponse.SerializeToString,
             ),
             'GetJobStatus': grpc.unary_unary_rpc_method_handler(
                     servicer.GetJobStatus,
-                    request_deserializer=map__reduce__pb2.GetJobStatusRequest.FromString,
-                    response_serializer=map__reduce__pb2.JobStatus.SerializeToString,
+                    request_deserializer=map__reduce__pb2.JobStatusRequest.FromString,
+                    response_serializer=map__reduce__pb2.JobStatusResponse.SerializeToString,
+            ),
+            'RegisterWorker': grpc.unary_unary_rpc_method_handler(
+                    servicer.RegisterWorker,
+                    request_deserializer=map__reduce__pb2.WorkerRegistration.FromString,
+                    response_serializer=map__reduce__pb2.RegistrationAck.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'Scheduler', rpc_method_handlers)
+            'Master', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('Scheduler', rpc_method_handlers)
+    server.add_registered_method_handlers('Master', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class Scheduler(object):
-    """Missing associated documentation comment in .proto file."""
+class Master(object):
+    """========== Services ==========
+
+    Master service - handles client job submissions and worker registration
+    """
 
     @staticmethod
     def SubmitJob(request,
@@ -99,9 +124,9 @@ class Scheduler(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/Scheduler/SubmitJob',
-            map__reduce__pb2.ScheduleJobRequest.SerializeToString,
-            map__reduce__pb2.JobStatus.FromString,
+            '/Master/SubmitJob',
+            map__reduce__pb2.SubmitJobRequest.SerializeToString,
+            map__reduce__pb2.JobStatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -126,9 +151,154 @@ class Scheduler(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/Scheduler/GetJobStatus',
-            map__reduce__pb2.GetJobStatusRequest.SerializeToString,
-            map__reduce__pb2.JobStatus.FromString,
+            '/Master/GetJobStatus',
+            map__reduce__pb2.JobStatusRequest.SerializeToString,
+            map__reduce__pb2.JobStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RegisterWorker(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/Master/RegisterWorker',
+            map__reduce__pb2.WorkerRegistration.SerializeToString,
+            map__reduce__pb2.RegistrationAck.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+
+class WorkerStub(object):
+    """Worker service - handles task execution
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.ExecuteTask = channel.unary_unary(
+                '/Worker/ExecuteTask',
+                request_serializer=map__reduce__pb2.TaskAssignment.SerializeToString,
+                response_deserializer=map__reduce__pb2.TaskResult.FromString,
+                _registered_method=True)
+        self.SendHeartbeat = channel.unary_unary(
+                '/Worker/SendHeartbeat',
+                request_serializer=map__reduce__pb2.Heartbeat.SerializeToString,
+                response_deserializer=map__reduce__pb2.HeartbeatAck.FromString,
+                _registered_method=True)
+
+
+class WorkerServicer(object):
+    """Worker service - handles task execution
+    """
+
+    def ExecuteTask(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SendHeartbeat(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_WorkerServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'ExecuteTask': grpc.unary_unary_rpc_method_handler(
+                    servicer.ExecuteTask,
+                    request_deserializer=map__reduce__pb2.TaskAssignment.FromString,
+                    response_serializer=map__reduce__pb2.TaskResult.SerializeToString,
+            ),
+            'SendHeartbeat': grpc.unary_unary_rpc_method_handler(
+                    servicer.SendHeartbeat,
+                    request_deserializer=map__reduce__pb2.Heartbeat.FromString,
+                    response_serializer=map__reduce__pb2.HeartbeatAck.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'Worker', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('Worker', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class Worker(object):
+    """Worker service - handles task execution
+    """
+
+    @staticmethod
+    def ExecuteTask(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/Worker/ExecuteTask',
+            map__reduce__pb2.TaskAssignment.SerializeToString,
+            map__reduce__pb2.TaskResult.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SendHeartbeat(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/Worker/SendHeartbeat',
+            map__reduce__pb2.Heartbeat.SerializeToString,
+            map__reduce__pb2.HeartbeatAck.FromString,
             options,
             channel_credentials,
             insecure,

@@ -1,114 +1,13 @@
 name: ${PROJECT}
 
 services:
-  scheduler:
+  # HDFS Namenode
+  namenode:
     build:
       context: .
-      dockerfile: Dockerfile.scheduler
-    image: ${PROJECT}-scheduler
-    hostname: scheduler
-    deploy:
-      resources:
-        limits:
-          memory: 3g
-    ports:
-      - "5440:5440"
-    networks:
-      - mapreduce-net
-
-  boss:
-    build:
-      context: .
-      dockerfile: Dockerfile.boss
-    image: ${PROJECT}-boss
-    hostname: boss
-    deploy:
-      resources:
-        limits:
-          memory: 2g
-    ports:
-      - "50052:50052"
-    depends_on:
-      - scheduler
-    networks:
-      - mapreduce-net
-
-  worker1:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    image: ${PROJECT}-worker
-    hostname: worker1
-    environment:
-      - WORKER_ID=worker-1
-    deploy:
-      resources:
-        limits:
-          memory: 1g
-          cpus: "1.0"
-    depends_on:
-      - boss
-    networks:
-      - mapreduce-net
-
-  worker2:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    image: ${PROJECT}-worker
-    hostname: worker2
-    environment:
-      - WORKER_ID=worker-2
-    deploy:
-      resources:
-        limits:
-          memory: 1g
-          cpus: "1.0"
-    depends_on:
-      - boss
-    networks:
-      - mapreduce-net
-
-  worker3:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    image: ${PROJECT}-worker
-    hostname: worker3
-    environment:
-      - WORKER_ID=worker-3
-    deploy:
-      resources:
-        limits:
-          memory: 1g
-          cpus: "1.0"
-    depends_on:
-      - boss
-    networks:
-      - mapreduce-net
-
-  worker4:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    image: ${PROJECT}-worker
-    hostname: worker4
-    environment:
-      - WORKER_ID=worker-4
-    deploy:
-      resources:
-        limits:
-          memory: 1g
-          cpus: "1.0"
-    depends_on:
-      - boss
-    networks:
-      - mapreduce-net
-
-  hdfs:
-    image: p4-hdfs
-    hostname: nn
-    command: sleep infinity
+      dockerfile: Dockerfile.namenode
+    image: ${PROJECT}-namenode
+    hostname: namenode
     ports:
       - "9870:9870"
       - "9000:9000"
@@ -119,16 +18,59 @@ services:
     networks:
       - mapreduce-net
 
-  client:
+  # HDFS Datanodes
+  datanode:
     build:
       context: .
-      dockerfile: Dockerfile.client
-    image: ${PROJECT}-client
+      dockerfile: Dockerfile.datanode
+    image: ${PROJECT}-datanode
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          memory: 1g
     depends_on:
-      - scheduler
+      - namenode
+    networks:
+      - mapreduce-net
+
+  # Master Service
+  master:
+    build:
+      context: .
+      dockerfile: Dockerfile.master
+    image: ${PROJECT}-master
+    hostname: master
+    ports:
+      - "50051:50051"
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    depends_on:
+      - namenode
+    networks:
+      - mapreduce-net
+
+  # Worker Services (4 replicas, 1 CPU each per ProjectSpec.md)
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    image: ${PROJECT}-worker
+    deploy:
+      replicas: 4
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
+    depends_on:
+      - master
+      - namenode
     networks:
       - mapreduce-net
 
 networks:
   mapreduce-net:
     driver: bridge
+
