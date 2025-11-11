@@ -6,20 +6,20 @@ import dataset_generator
 
 def submit_job():
     """Submit a MapReduce job to the master"""
-    # Generate sample dataset
-    dataset_generator.generate_default_dataset()
+    # NOTE: Data must be pre-generated inside a container using create_test_data.py
+    # See README.md "Uploading Example Data" section for instructions
     
     # Connect to master service
-    channel = grpc.insecure_channel("master:50051")
+    channel = grpc.insecure_channel("localhost:50051")
     stub = map_reduce_pb2_grpc.MasterStub(channel)
 
     # Create job submission request
     request = map_reduce_pb2.SubmitJobRequest(
-        dataset_path="hdfs://namenode:9000/data/sample.parquet",
+        dataset_path="hdfs://namenode:9000/data/test_10mb.parquet",
         num_map_tasks=8,
         num_reduce_tasks=4,
-        map_function_path="/app/user_funcs/map_func.py",
-        reduce_function_path="/app/user_funcs/reduce_func.py"
+        map_function_path="/user_funcs/map_func.py",
+        reduce_function_path="/user_funcs/reduce_func.py"
     )
 
     print("[CLIENT] Submitting job to master...")

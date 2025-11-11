@@ -39,7 +39,7 @@ Here's a complete workflow to test the system:
 ```bash
 # 1. Set project name and navigate to directory
 export PROJECT=mapreduce
-cd /home/shukla35/MapReduceImpl
+cd MapReduceImpl
 
 # 2. Build the base HDFS image
 docker build -t mapreduce-hdfs -f Dockerfile.hdfs .
@@ -60,17 +60,20 @@ docker cp create_test_data.py mapreduce-master-1:/create_test_data.py
 docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && python3 /create_test_data.py --size 10MB'
 
 # 8. Verify data in HDFS
-docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls -h /data/'
+docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls -h hdfs://namenode:9000/data/'
 
 # 9. Set up Python virtual environment on host (for client)
 python3 -m venv venv
 source venv/bin/activate
 pip install grpcio grpcio-tools
 
-# 10. Submit a MapReduce job (from host)
+# 10. Generate gRPC protocol files (if not already present)
+python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. map_reduce.proto
+
+# 11. Submit a MapReduce job (from host)
 python3 client.py
 
-# 11. Check results
+# 12. Check results
 docker compose exec master bash -c 'export CLASSPATH=`$HADOOP_HOME/bin/hdfs classpath --glob` && hdfs dfs -ls -h /output/'
 ```
 
@@ -297,20 +300,29 @@ def reduce_function(key, values):
 
 ## Submitting Jobs
 
+### Prerequisites
+
+Before submitting jobs, ensure:
+1. You have generated test data (see "Uploading Example Data" section)
+2. You have gRPC packages installed: `pip install grpcio grpcio-tools`
+3. You have generated the protocol files: `python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. map_reduce.proto`
+
 ### Method 1: Using client.py
 
-The `client.py` script is already configured to submit a sample job. Simply run:
+The `client.py` script is configured to submit a job with the test data. Run from your host machine:
 
 ```bash
-# From the host machine
+# From the host machine (with venv activated)
 python3 client.py
 ```
 
 The client will:
-1. Generate a sample dataset if it doesn't exist
-2. Submit a MapReduce job to the master
+1. Connect to the master service via gRPC
+2. Submit a MapReduce job using the pre-generated dataset
 3. Poll and display job status
 4. Show the output path when complete
+
+**Note:** The client connects to the master via gRPC (port 50051) and does NOT need HDFS access. Data must be pre-generated using `create_test_data.py` (see above)
 
 ### Method 2: Custom Job Submission
 
