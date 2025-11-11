@@ -8,67 +8,67 @@ This MapReduce implementation provides:
 - **Distributed Processing**: 4 worker containers with 1 CPU each for parallel execution
 - **Fault Tolerance**: Automatic worker failure detection and task reassignment
 - **Flexible Tasking**: Support for arbitrary number of map/reduce tasks distributed across workers
-- **HDFS Storage**: Shared storage for input, intermediate, and output data
+- **HDFS Storage**: Multi-container HDFS cluster with namenode and datanodes
 - **gRPC Communication**: Efficient RPC-based communication between components
 - **Parquet Format**: Efficient columnar storage for all data
 
 ### Architecture
 
 ```
-Client ──gRPC──> Scheduler ──gRPC──> Boss ──gRPC──> Workers (4x)
-                                             │
-                                             └──────> HDFS
+Client (host) ──gRPC──> Master ──gRPC──> Workers (4x)
+                           │
+                           └──────> HDFS (namenode + 3 datanodes)
 ```
 
 **Components:**
-- **Client**: Submits jobs and monitors status
-- **Scheduler**: Receives jobs and coordinates with Boss
-- **Boss**: Orchestrates task distribution and monitors worker health
-- **Workers**: Execute map and reduce tasks
-- **HDFS**: Distributed file system for data storage
+- **Client**: Runs on host machine, submits jobs and monitors status
+- **Master**: Centralized coordinator that manages job lifecycle and task scheduling
+- **Workers**: Execute map and reduce tasks (4 replicas, 1 CPU each)
+- **HDFS Cluster**: Distributed file system with 1 namenode and 3 datanodes
 
 ## Prerequisites
 
 - Docker and Docker Compose
-- Python 3.9+ (for client if running outside container)
+- Python 3.10+ (for client running on host)
 - At least 8GB RAM and 4 CPU cores recommended
 
 ## Building the System
 
-### 1. Build Proto Files (Optional - done in Docker)
-
-The proto files are automatically compiled inside Docker containers, but if you want to compile them locally:
-
-```bash
-python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. map_reduce.proto
-python3 -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. boss.proto
-```
-
-### 2. Build Docker Images
-
-Set the project name and build all images:
+### 1. Set Project Name
 
 ```bash
 export PROJECT=mapreduce
+```
+
+### 2. Build Base HDFS Image First
+
+The system uses a layered Docker build. Build the base HDFS image first:
+
+```bash
+cd /home/shukla35/MapReduceImpl
+docker build -t mapreduce-hdfs -f Dockerfile.hdfs .
+```
+
+### 3. Build All Services
+
+```bash
 docker compose build
-docker compose up -d
 ```
 
 This builds:
-- `mapreduce-scheduler`: Scheduler service
-- `mapreduce-boss`: Boss orchestrator
-- `mapreduce-worker`: Worker nodes (4 instances)
-- `mapreduce-client`: Client container
-- `p4-hdfs`: HDFS container (if not already built)
+- `mapreduce-namenode`: HDFS namenode
+- `mapreduce-datanode`: HDFS datanodes (3 replicas)
+- `mapreduce-master`: Master coordinator
+- `mapreduce-worker`: Worker nodes (4 replicas)
 
 ## Installation
 
-### For Running Client Outside Container
+### For Client (Running on Host)
 
-Install required Python packages:
+Install required Python packages on your host machine:
 
 ```bash
-pip install grpcio grpcio-tools pandas pyarrow numpy matplotlib
+pip install grpcio grpcio-tools pandas pyarrow
 ```
 
 ## Starting the System
@@ -77,15 +77,14 @@ pip install grpcio grpcio-tools pandas pyarrow numpy matplotlib
 
 ```bash
 export PROJECT=mapreduce
-docker compose build
 docker compose up -d
 ```
 
 This starts:
 - 1 HDFS namenode
-- 1 Scheduler
-- 1 Boss
-- 4 Workers (worker1, worker2, worker3, worker4)
+- 3 HDFS datanodes
+- 1 Master service
+- 4 Worker services (each with 1 CPU limit)
 
 ### 2. Verify Services Are Running
 
@@ -93,12 +92,12 @@ This starts:
 docker compose ps
 ```
 
-All services should show as "running".
+All services should show as "running". Wait a few seconds for HDFS to initialize.
 
 ### 3. Check HDFS
 
 ```bash
-docker compose exec hdfs hadoop fs -ls /
+docker compose exec namenode hadoop fs -ls /
 ```
 
 ### 4. View Logs
@@ -108,8 +107,11 @@ docker compose exec hdfs hadoop fs -ls /
 docker compose logs -f
 
 # View specific service
-docker compose logs -f boss
-docker compose logs -f worker1
+docker compose logs -f master
+docker compose logs -f namenode
+
+# View worker logs (note: workers are scaled, so check specific container)
+docker compose logs -f
 ```
 
 ## Uploading Example Data
@@ -119,20 +121,26 @@ docker compose logs -f worker1
 The system includes a test data generator:
 
 ```bash
-# From within the client container
-docker compose run client python create_test_data.py --size 10MB
-
-# Or specify custom size and path
-docker compose run client python create_test_data.py --size 50MB --output hdfs://nn:9000/data/my_test.parquet
+# Generate sample dataset (run from host or inside a worker container)
+python3 create_test_data.py --size 10MB
 ```
+
+This creates a Parquet file at `/data/sample.parquet` in HDFS.
 
 Supported sizes: `1MB`, `10MB`, `100MB`, `500MB`, or `1GB`
 
 ### Verify Data Upload
 
 ```bash
-docker compose exec hdfs hadoop fs -ls /data/
-docker compose exec hdfs hadoop fs -du -h /data/
+docker compose exec namenode hadoop fs -ls /data/
+docker compose exec namenode hadoop fs -du -h /data/
+```
+
+### View HDFS Web UI
+
+Access the HDFS namenode web interface at:
+```
+http://localhost:9870
 ```
 
 ## Writing MapReduce Jobs
@@ -153,10 +161,16 @@ def map_function(key, record):
     Yields:
         Tuples of (key, value)
     """
-    # Example: Group by x value buckets
-    if 'x' in record:
-        x_bucket = (record['x'] // 10) * 10
-        yield (f"bucket_{x_bucket}", record['value'])
+    # Example: Word count from text field
+    if 'text' in record:
+        words = record['text'].split()
+        for word in words:
+            yield (word.lower(), 1)
+    
+    # Example: Group by value buckets
+    if 'value' in record:
+        bucket = (record['value'] // 10) * 10
+        yield (f"bucket_{bucket}", 1)
 ```
 
 ### Reduce Function
@@ -180,18 +194,20 @@ def reduce_function(key, values):
     yield (key, total)
 ```
 
-### Example: Word Count
+### Complete Example: Word Count
 
-**map_func.py:**
+**user_funcs/map_func.py:**
 ```python
 def map_function(key, record):
     if 'text' in record:
         words = record['text'].split()
         for word in words:
-            yield (word.lower(), 1)
+            word = word.lower().strip('.,!?;:')
+            if word:
+                yield (word, 1)
 ```
 
-**reduce_func.py:**
+**user_funcs/reduce_func.py:**
 ```python
 def reduce_function(key, values):
     yield (key, sum(values))
@@ -199,288 +215,293 @@ def reduce_function(key, values):
 
 ## Submitting Jobs
 
-### Method 1: Modify client.py
+### Method 1: Using client.py
 
-Edit `client.py` to specify your job parameters:
+The `client.py` script is already configured to submit a sample job. Simply run:
+
+```bash
+# From the host machine
+python3 client.py
+```
+
+The client will:
+1. Generate a sample dataset if it doesn't exist
+2. Submit a MapReduce job to the master
+3. Poll and display job status
+4. Show the output path when complete
+
+### Method 2: Custom Job Submission
+
+Modify `client.py` or create your own client script:
 
 ```python
-request = map_reduce_pb2.ScheduleJobRequest(
-    dataset_path="hdfs://nn:9000/data/test_10mb.parquet",
-    num_partitions=8,  # Number of map tasks
+import grpc
+import map_reduce_pb2
+import map_reduce_pb2_grpc
+
+# Connect to master
+channel = grpc.insecure_channel("localhost:50051")
+stub = map_reduce_pb2_grpc.MasterStub(channel)
+
+# Submit job
+request = map_reduce_pb2.SubmitJobRequest(
+    dataset_path="hdfs://namenode:9000/data/sample.parquet",
+    num_map_tasks=8,      # Number of map tasks
+    num_reduce_tasks=4,   # Number of reduce tasks
     map_function_path="/app/user_funcs/map_func.py",
-    reduce_function_path="/app/user_funcs/reduce_func.py",
-    repartition_threshold=0.1,
-    custom_hash_func=""
+    reduce_function_path="/app/user_funcs/reduce_func.py"
 )
-```
 
-Then run:
-
-```bash
-docker-compose run client python client.py
-```
-
-### Method 2: Use Benchmark Script
-
-```bash
-docker-compose run client python benchmark.py \
-    --datasets hdfs://nn:9000/data/test_10mb.parquet \
-    --partitions 8 \
-    --runs 3
+response = stub.SubmitJob(request)
+print(f"Job ID: {response.job_id}")
+print(f"Status: {response.status}")
 ```
 
 ### Job Parameters
 
-- `dataset_path`: HDFS path to input Parquet file
-- `num_partitions`: Number of map tasks (can exceed worker count - they'll be distributed)
-- `map_function_path`: Path to map function inside container
-- `reduce_function_path`: Path to reduce function inside container
+- `dataset_path`: HDFS path to input Parquet file (must start with `hdfs://namenode:9000`)
+- `num_map_tasks`: Number of map tasks (can exceed worker count - they'll be queued)
+- `num_reduce_tasks`: Number of reduce tasks and output partitions
+- `map_function_path`: Path to map function inside worker containers
+- `reduce_function_path`: Path to reduce function inside worker containers
 
 ## Monitoring Jobs
 
-The client automatically polls for job status. You can also check logs:
+The client automatically polls for job status. You can also monitor through logs:
 
 ```bash
-# Watch job progress
-docker-compose logs -f boss
+# Watch master logs for job progress
+docker compose logs -f master
 
-# Check specific worker
-docker-compose logs -f worker1
+# Watch all services
+docker compose logs -f
 ```
+
+Master logs show:
+- Job submission and ID assignment
+- Map phase progress
+- Reduce phase progress
+- Task failures and reassignments
+- Job completion with statistics
 
 ## Accessing Results
 
 ### List Output Files
 
 ```bash
-docker compose exec hdfs hadoop fs -ls /output/
+docker compose exec namenode hadoop fs -ls /output/
+docker compose exec namenode hadoop fs -ls /output/job-<job-id>/
 ```
 
-Each job creates a directory `/output/job-<uuid>/` with partition files:
+Each job creates output files:
 ```
-/output/job-xyz/part-0.parquet
-/output/job-xyz/part-1.parquet
-...
+/output/job-abc123/part-0.parquet
+/output/job-abc123/part-1.parquet
+/output/job-abc123/part-2.parquet
+/output/job-abc123/part-3.parquet
 ```
 
-### Read Results
+### Download and Read Results
+
+From the host machine:
 
 ```python
 import pyarrow.parquet as pq
 import pyarrow as pa
 
-fs = pa.fs.HadoopFileSystem("nn", 9000)
-table = pq.read_table("/output/job-xyz/part-0.parquet", filesystem=fs)
+# Connect to HDFS
+fs = pa.fs.HadoopFileSystem("localhost", 9000)
+
+# Read a partition
+table = pq.read_table("/output/job-abc123/part-0.parquet", filesystem=fs)
 df = table.to_pandas()
 print(df)
 ```
 
-### Merge Partition Files
+### Merge All Partitions
 
 ```python
 import pandas as pd
 import pyarrow.parquet as pq
 import pyarrow as pa
 
-fs = pa.fs.HadoopFileSystem("nn", 9000)
+fs = pa.fs.HadoopFileSystem("localhost", 9000)
 
 # Read all partitions
+job_id = "job-abc123"
+num_partitions = 4
 dfs = []
+
 for i in range(num_partitions):
-    table = pq.read_table(f"/output/job-xyz/part-{i}.parquet", filesystem=fs)
+    table = pq.read_table(f"/output/{job_id}/part-{i}.parquet", filesystem=fs)
     dfs.append(table.to_pandas())
 
 # Combine
 final_df = pd.concat(dfs, ignore_index=True)
+print(final_df)
 ```
 
 ## Worker Failure Testing
 
-### Simulate Worker Failures
+The system includes built-in fault tolerance. To test it:
 
-Set the `FAIL_AFTER` environment variable to make a worker fail after N tasks:
-
-```yaml
-# In docker-compose.yml, modify a worker:
-worker1:
-  environment:
-    - WORKER_ID=worker-1
-    - FAIL_AFTER=2  # Fail after 2 tasks
-```
-
-Then restart:
-```bash
-docker compose up -d worker1
-```
-
-### Observe Failure Recovery
+### Simulate Worker Failure
 
 ```bash
-# Watch the boss detect and reassign tasks
-docker compose logs -f boss
+# Kill a worker container
+docker compose stop mapreduce-worker-1
 
-# Watch worker failure
-docker compose logs -f worker1
+# Or force kill
+docker kill mapreduce-worker-1
 ```
 
-The Boss will:
-1. Detect worker failure (timeout or crash)
-2. Mark tasks as failed
+The master will:
+1. Detect the worker timeout
+2. Mark in-progress tasks as failed
 3. Reassign tasks to healthy workers
-4. Continue job execution
+4. Complete the job successfully
 
-### Run Benchmark Comparisons
+### View Failure Statistics
 
-```bash
-# Normal execution
-docker compose run client python benchmark.py \
-    --datasets hdfs://nn:9000/data/test_10mb.parquet \
-    --output results_normal.csv
-
-# With one worker failing (manually set FAIL_AFTER first)
-docker compose run client python benchmark.py \
-    --datasets hdfs://nn:9000/data/test_10mb.parquet \
-    --output results_with_failures.csv
-```
-
-## Performance Analysis
-
-### Generate Plots
+Check master logs after job completion:
 
 ```bash
-docker compose run client python plot_results.py benchmark_results.csv --output-dir /data/plots
+docker compose logs master | grep -A 5 "COMPLETED"
 ```
 
-This creates:
-- `execution_time_by_dataset.png`: Bar chart of execution times
-- `failure_comparison.png`: Normal vs. failure recovery performance
-- `time_series.png`: Performance across multiple runs
+You'll see statistics like:
+- Total failures
+- Number of task reassignments
+- Job completion time
 
-### Key Metrics
+## Performance Evaluation
 
-The system tracks:
-- **Execution time**: Total job duration
-- **Failures**: Number of task failures
-- **Reassignments**: Number of task reassignments
-- **Throughput**: Data processed per second
+### Run Benchmark Tests
 
-## Cleanup
+```bash
+python3 benchmark.py
+```
 
-### Stop Services
+This runs multiple tests with varying worker counts and data sizes.
+
+### Plot Results
+
+```bash
+python3 plot_results.py
+```
+
+Generates plots showing:
+- Speedup with multiple workers
+- Impact of worker failures
+- Task distribution efficiency
+
+## Troubleshooting
+
+### Services Won't Start
+
+```bash
+# Check if ports are in use
+netstat -tuln | grep -E '9000|9870|50051'
+
+# Check Docker logs
+docker compose logs
+```
+
+### HDFS Not Ready
+
+Wait 10-20 seconds for HDFS to fully initialize:
+
+```bash
+# Check namenode status
+docker compose logs namenode
+
+# Verify HDFS is accessible
+docker compose exec namenode hadoop fs -ls /
+```
+
+### Workers Can't Connect to Master
+
+```bash
+# Verify master is running
+docker compose ps master
+
+# Check master logs
+docker compose logs master
+
+# Restart services
+docker compose restart
+```
+
+### Job Fails Immediately
+
+```bash
+# Check if input file exists
+docker compose exec namenode hadoop fs -ls /data/sample.parquet
+
+# Verify user functions are present
+docker compose exec mapreduce-worker-1 ls -la /app/user_funcs/
+```
+
+## Stopping the System
+
+### Stop All Services
 
 ```bash
 docker compose down
 ```
 
-### Remove Data
-
-```bash
-# Clear HDFS data
-docker compose exec hdfs hadoop fs -rm -r /data/*
-docker compose exec hdfs hadoop fs -rm -r /output/*
-docker compose exec hdfs hadoop fs -rm -r /intermediate/*
-```
-
-### Remove All Containers and Images
+### Stop and Remove Volumes (Clean Slate)
 
 ```bash
 docker compose down -v
-docker rmi mapreduce-scheduler mapreduce-boss mapreduce-worker mapreduce-client
 ```
 
-## Troubleshooting
+This removes all HDFS data. Use with caution!
 
-### Workers Not Registering
+## Project Structure
 
-Check if Boss is running:
-```bash
-docker compose logs boss
+```
+MapReduceImpl/
+├── master.py                 # Master coordinator service
+├── worker.py                 # Worker service
+├── client.py                 # Client for job submission
+├── map_reduce.proto          # gRPC protocol definitions
+├── map_reduce_pb2.py         # Generated protobuf code
+├── map_reduce_pb2_grpc.py    # Generated gRPC code
+├── docker-compose.yml        # Service orchestration
+├── Dockerfile.hdfs           # Base HDFS image
+├── Dockerfile.namenode       # HDFS namenode
+├── Dockerfile.datanode       # HDFS datanode
+├── Dockerfile.master         # Master service
+├── Dockerfile.worker         # Worker service
+├── user_funcs/               # User-defined functions
+│   ├── map_func.py
+│   └── reduce_func.py
+├── create_test_data.py       # Test data generator
+├── benchmark.py              # Performance benchmarking
+├── plot_results.py           # Visualization
+└── README.md                 # This file
 ```
 
-Restart workers:
-```bash
-docker compose restart worker1 worker2 worker3 worker4
-```
+## Design Documentation
 
-### HDFS Connection Issues
+For detailed architecture and design decisions, see [Design.md](Design.md).
 
-Verify HDFS is accessible:
-```bash
-docker compose exec client python -c "import pyarrow as pa; fs = pa.fs.HadoopFileSystem('nn', 9000); print(fs.get_file_info('/'))"
-```
+## Special Features
 
-### Job Stuck in SCHEDULED
+1. **Worker Failure Handling**: Automatic detection and task reassignment
+2. **Task Timeout Detection**: Tasks that take too long are reassigned
+3. **Flexible Task Distribution**: More tasks than workers are automatically queued
+4. **HDFS Integration**: Reliable distributed storage with replication
 
-Check Boss logs for errors:
-```bash
-docker compose logs boss | grep ERROR
-```
+## Contributing
 
-Verify Boss can reach workers:
-```bash
-docker compose exec boss ping worker1
-```
-
-### Out of Memory
-
-Reduce dataset size or increase memory limits in `docker-compose.yml`:
-```yaml
-deploy:
-  resources:
-    limits:
-      memory: 2g  # Increase as needed
-```
-
-## Architecture Details
-
-### Component Communication
-
-1. **Client → Scheduler**: Job submission via gRPC
-2. **Scheduler → Boss**: Job assignment via gRPC
-3. **Boss → Workers**: Task assignment via gRPC
-4. **Workers → HDFS**: Data read/write via PyArrow
-5. **Boss → Scheduler**: Status updates (future enhancement)
-
-### Data Flow
-
-1. **Input**: Client uploads data to HDFS
-2. **Partitioning**: Boss partitions input into N chunks
-3. **Map Phase**: Workers read partitions, execute map function, write intermediate results
-4. **Shuffle**: Data automatically partitioned by key hash
-5. **Reduce Phase**: Workers read intermediate data, execute reduce function, write output
-6. **Output**: Final results in HDFS
-
-### Failure Handling
-
-- **Task timeout**: 120 seconds
-- **Worker timeout**: 30 seconds  
-- **Max retries**: 3 attempts per task
-- **Detection**: Heartbeat monitoring + task completion tracking
-- **Recovery**: Automatic task reassignment to healthy workers
-
-## Configuration
-
-Key configuration in `boss.py`:
-```python
-MAX_RETRIES = 3          # Max task retry attempts
-TASK_TIMEOUT = 120       # Task timeout in seconds
-WORKER_TIMEOUT = 30      # Worker heartbeat timeout
-```
-
-Resource limits in `docker-compose.yml`:
-```yaml
-deploy:
-  resources:
-    limits:
-      cpus: "1.0"        # CPU limit per worker
-      memory: 1g         # Memory limit
-```
+This is an educational project for CS 544 at UW-Madison. Contributions should maintain:
+- Clear separation of concerns
+- Comprehensive error handling
+- Detailed logging for debugging
+- Test coverage for new features
 
 ## License
 
-This is an educational project for demonstrating MapReduce concepts.
-
-## Authors
-
-MapReduce Implementation Project
-
+Educational use only - CS 544 project.
