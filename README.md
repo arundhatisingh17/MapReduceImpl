@@ -730,7 +730,9 @@ This runs multiple tests with varying worker counts and data sizes.
 ### Plot Results
 
 ```bash
-python3 plot_results.py
+chmod +x req_install.sh
+./req_install.sh
+python3 plot_results.py benchmark_results.csv
 ```
 
 Generates plots showing:
