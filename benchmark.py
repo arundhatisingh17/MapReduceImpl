@@ -15,7 +15,7 @@ import argparse
 from datetime import datetime
 import sys
 
-def submit_job(dataset_path, num_partitions):
+def submit_job(dataset_path):
     """
     Submit a MapReduce job and wait for completion.
     
@@ -23,21 +23,20 @@ def submit_job(dataset_path, num_partitions):
         tuple: (job_id, status, duration_seconds)
     """
     try:
-        channel = grpc.insecure_channel("scheduler:5440", options=[
+        channel = grpc.insecure_channel("localhost:50051", options=[
             ('grpc.max_receive_message_length', 100 * 1024 * 1024),
         ])
-        stub = map_reduce_pb2_grpc.SchedulerStub(channel)
+        stub = map_reduce_pb2_grpc.MasterStub(channel)
         
-        request = map_reduce_pb2.ScheduleJobRequest(
+        request = map_reduce_pb2.SubmitJobRequest(
             dataset_path=dataset_path,
-            num_partitions=num_partitions,
             map_function_path="/app/user_funcs/map_func.py",
             reduce_function_path="/app/user_funcs/reduce_func.py",
-            repartition_threshold=0.1,
-            custom_hash_func=""
+            num_map_tasks=4,
+            num_reduce_tasks=2
         )
         
-        print(f"[BENCHMARK] Submitting job for {dataset_path} with {num_partitions} partitions")
+        print(f"[BENCHMARK] Submitting job for {dataset_path}")
         start_time = time.time()
         
         response = stub.SubmitJob(request)
@@ -48,7 +47,7 @@ def submit_job(dataset_path, num_partitions):
         # Poll for completion
         while True:
             time.sleep(3)
-            status_req = map_reduce_pb2.GetJobStatusRequest(job_id=job_id)
+            status_req = map_reduce_pb2.JobStatusRequest(job_id=job_id)
             status_resp = stub.GetJobStatus(status_req)
             
             print(f"[BENCHMARK] Job {job_id} status: {status_resp.status}")
@@ -63,13 +62,12 @@ def submit_job(dataset_path, num_partitions):
         return None, "ERROR", 0
 
 
-def run_benchmark(dataset_sizes, num_partitions, num_runs, output_file):
+def run_benchmark(dataset_sizes, num_runs, output_file):
     """
     Run benchmark tests.
     
     Args:
         dataset_sizes: List of dataset paths to test
-        num_partitions: Number of partitions/tasks
         num_runs: Number of runs per configuration
         output_file: CSV file to write results
     """
@@ -83,13 +81,12 @@ def run_benchmark(dataset_sizes, num_partitions, num_runs, output_file):
             print(f"Run {run+1}/{num_runs} for {dataset_name}")
             print(f"{'='*60}\n")
             
-            job_id, status, duration = submit_job(dataset_path, num_partitions)
+            job_id, status, duration = submit_job(dataset_path)
             
             result = {
                 'timestamp': datetime.now().isoformat(),
                 'dataset': dataset_name,
                 'dataset_path': dataset_path,
-                'num_partitions': num_partitions,
                 'run': run + 1,
                 'job_id': job_id,
                 'status': status,
@@ -102,7 +99,7 @@ def run_benchmark(dataset_sizes, num_partitions, num_runs, output_file):
     
     # Write results to CSV
     with open(output_file, 'w', newline='') as f:
-        fieldnames = ['timestamp', 'dataset', 'dataset_path', 'num_partitions', 
+        fieldnames = ['timestamp', 'dataset', 'dataset_path', 
                      'run', 'job_id', 'status', 'duration_seconds', 'failure_mode']
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -144,8 +141,6 @@ def main():
     parser.add_argument('--datasets', nargs='+', 
                        default=['hdfs://nn:9000/data/test_10mb.parquet'],
                        help='List of dataset paths to benchmark')
-    parser.add_argument('--partitions', type=int, default=8,
-                       help='Number of map/reduce partitions')
     parser.add_argument('--runs', type=int, default=3,
                        help='Number of runs per configuration')
     parser.add_argument('--output', type=str, default='benchmark_results.csv',
@@ -157,12 +152,11 @@ def main():
     print("MapReduce Benchmark")
     print("="*60)
     print(f"Datasets: {args.datasets}")
-    print(f"Partitions: {args.partitions}")
     print(f"Runs per config: {args.runs}")
     print(f"Output file: {args.output}")
     print("="*60)
     
-    run_benchmark(args.datasets, args.partitions, args.runs, args.output)
+    run_benchmark(args.datasets, args.runs, args.output)
 
 
 if __name__ == "__main__":
