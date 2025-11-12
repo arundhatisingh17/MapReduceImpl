@@ -20,7 +20,7 @@ def submit_job(dataset_path):
     Submit a MapReduce job and wait for completion.
     
     Returns:
-        tuple: (job_id, status, duration_seconds)
+        tuple: (job_id, status, duration_seconds, error_message)
     """
     try:
         channel = grpc.insecure_channel("localhost:50051", options=[
@@ -50,16 +50,21 @@ def submit_job(dataset_path):
             status_req = map_reduce_pb2.JobStatusRequest(job_id=job_id)
             status_resp = stub.GetJobStatus(status_req)
             
-            print(f"[BENCHMARK] Job {job_id} status: {status_resp.status}")
+            status_text = f"[BENCHMARK] Job {job_id} status: {status_resp.status}"
+            error_message = ""
+            if hasattr(status_resp, 'error') and status_resp.error:
+                error_message = status_resp.error
+                status_text += f" - Error: {error_message}"
+            print(status_text)
             
             if status_resp.status in ("COMPLETED", "FAILED", "ERROR"):
                 end_time = time.time()
                 duration = end_time - start_time
-                return job_id, status_resp.status, duration
+                return job_id, status_resp.status, duration, error_message
         
     except Exception as e:
         print(f"[BENCHMARK] Error: {e}")
-        return None, "ERROR", 0
+        return None, "ERROR", 0, str(e)
 
 
 def run_benchmark(dataset_sizes, num_runs, output_file):
@@ -81,7 +86,7 @@ def run_benchmark(dataset_sizes, num_runs, output_file):
             print(f"Run {run+1}/{num_runs} for {dataset_name}")
             print(f"{'='*60}\n")
             
-            job_id, status, duration = submit_job(dataset_path)
+            job_id, status, duration, error_message = submit_job(dataset_path)
             
             result = {
                 'timestamp': datetime.now().isoformat(),
@@ -91,7 +96,8 @@ def run_benchmark(dataset_sizes, num_runs, output_file):
                 'job_id': job_id,
                 'status': status,
                 'duration_seconds': duration,
-                'failure_mode': 'normal'
+                'failure_mode': 'normal',
+                'error_message': error_message
             }
             
             results.append(result)
@@ -100,7 +106,7 @@ def run_benchmark(dataset_sizes, num_runs, output_file):
     # Write results to CSV
     with open(output_file, 'w', newline='') as f:
         fieldnames = ['timestamp', 'dataset', 'dataset_path', 
-                     'run', 'job_id', 'status', 'duration_seconds', 'failure_mode']
+                     'run', 'job_id', 'status', 'duration_seconds', 'failure_mode', 'error_message']
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(results)
@@ -139,7 +145,7 @@ def print_summary(results):
 def main():
     parser = argparse.ArgumentParser(description='Run MapReduce benchmarks')
     parser.add_argument('--datasets', nargs='+', 
-                       default=['hdfs://nn:9000/data/test_10mb.parquet'],
+                       default=['hdfs://namenode:9000/data/test_10mb.parquet'],
                        help='List of dataset paths to benchmark')
     parser.add_argument('--runs', type=int, default=3,
                        help='Number of runs per configuration')
