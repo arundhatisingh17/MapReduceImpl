@@ -1,3 +1,7 @@
 .aider*
 .DS_Store
 venv/
+# Recovery metrics output
+jobs_executed/
+plots/
+test_plots/

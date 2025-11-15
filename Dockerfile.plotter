@@ -1,0 +1,34 @@
+# Dockerfile for MapReduce Recovery Metrics Plotter
+# This container has all dependencies needed to generate recovery analysis plots
+
+FROM python:3.10-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python packages for plotting
+RUN pip install --no-cache-dir \
+    matplotlib==3.8.2 \
+    pandas==2.1.4 \
+    numpy==1.26.2 \
+    pyarrow==14.0.1
+
+# Copy plotting scripts
+COPY plot_recovery.py /app/
+COPY benchmark_recovery.py /app/
+COPY extract_metrics.py /app/
+
+# Create directories for metrics and plots
+RUN mkdir -p /app/jobs_executed /app/plots
+
+# Set environment variable to use non-interactive matplotlib backend
+ENV MPLBACKEND=Agg
+
+# Default command shows usage
+CMD ["python3", "plot_recovery.py", "--help"]

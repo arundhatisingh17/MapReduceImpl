@@ -43,6 +43,8 @@ services:
     hostname: master
     ports:
       - "50051:50051"
+    volumes:
+      - ./jobs_executed:/app/jobs_executed
     deploy:
       resources:
         limits:
@@ -67,6 +69,20 @@ services:
     depends_on:
       - master
       - namenode
+    networks:
+      - mapreduce-net
+
+  # Plotter Service (for generating recovery metrics plots)
+  plotter:
+    build:
+      context: .
+      dockerfile: Dockerfile.plotter
+    image: ${PROJECT}-plotter
+    volumes:
+      - ./jobs_executed:/app/jobs_executed
+      - ./plots:/app/plots
+    profiles:
+      - tools
     networks:
       - mapreduce-net
 

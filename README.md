@@ -740,6 +740,38 @@ Generates plots showing:
 - Impact of worker failures
 - Task distribution efficiency
 
+### Recovery Metrics Analysis
+
+For detailed recovery latency and throughput analysis with failure simulation, see **[RECOVERY_METRICS.md](RECOVERY_METRICS.md)**.
+
+The system automatically exports detailed metrics for each job to `./jobs_executed/<job_id>_metrics.json`. These metrics include:
+- Recovery latency after node failures
+- Throughput before, during, and after failures
+- Worker count timeline
+- CPU usage over time
+
+**Quick start:**
+```bash
+# After running a job with failure (see RECOVERY_METRICS.md for details)
+# Build the plotter image
+docker build -t mapreduce-plotter -f Dockerfile.plotter .
+
+# Generate recovery plots using the plotter container
+docker run --rm \
+  -v $(pwd)/jobs_executed:/app/jobs_executed \
+  -v $(pwd)/plots:/app/plots \
+  mapreduce-plotter \
+  python3 plot_recovery.py --input /app/jobs_executed/<job_id>_metrics.json --output-dir /app/plots
+
+# Or run directly on host (requires matplotlib, pandas, numpy)
+python3 plot_recovery.py --input ./jobs_executed/<job_id>_metrics.json --output-dir ./plots
+
+# View the generated plots
+open plots/recovery_timeline.png
+```
+
+See [RECOVERY_METRICS.md](RECOVERY_METRICS.md) for complete documentation on recovery metrics collection and visualization.
+
 ## Troubleshooting
 
 ### Services Won't Start
